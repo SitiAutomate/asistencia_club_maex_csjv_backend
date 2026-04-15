@@ -12,6 +12,7 @@ import RubricasRoutes from './routes/rubricasRoutes.js';
 import EvaluacionesRoutes from './routes/evaluacionesRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import authRoutes from './routes/authRoutes.js';
+import integracionClubRoutes from './routes/integracionClubRoutes.js';
 const app = express();
 
 app.use(
@@ -43,6 +44,7 @@ app.use('/api/asistencia', AsistenciaRoutes);
 app.use('/api/rubricas', RubricasRoutes);
 app.use('/api/evaluaciones', EvaluacionesRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/integracion-club', integracionClubRoutes);
 app.use(notFound);
 app.use(errorHandler);
 

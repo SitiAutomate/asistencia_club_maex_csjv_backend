@@ -47,6 +47,9 @@ export const env = {
     bearerMed: process.env.BEARERMED || '',
     bearerRet: process.env.BEARERRET || '',
   },
+  integracionClub: {
+    bearerIns: process.env.BEARERINS || '',
+  },
   jwt: {
     secret: process.env.JWT_SECRET || '',
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',

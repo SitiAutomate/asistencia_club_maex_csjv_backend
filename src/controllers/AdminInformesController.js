@@ -14,28 +14,121 @@ function anioMesBogota() {
   return { anio: y, mes: m, mesNum: Number(m) };
 }
 
+function buildListWhere(query) {
+  const fechaInicio = query.fechaInicio ? String(query.fechaInicio).trim() : '';
+  const fechaFin = query.fechaFin ? String(query.fechaFin).trim() : '';
+  const categoria = query.categoria ? String(query.categoria).trim() : '';
+  const entrenador = query.entrenador ? String(query.entrenador).trim() : '';
+  const estado = query.estado ? String(query.estado).trim().toLowerCase() : 'todos';
+
+  const clauses = ['1=1'];
+  const repl = [];
+
+  if (fechaInicio && fechaFin) {
+    const ini = new Date(`${fechaInicio}T00:00:00`);
+    const fin = new Date(`${fechaFin}T23:59:59.999`);
+    if (!Number.isNaN(ini.getTime()) && !Number.isNaN(fin.getTime())) {
+      clauses.push('e.fecha_creacion BETWEEN ? AND ?');
+      repl.push(ini, fin);
+    }
+  } else if (fechaInicio) {
+    const ini = new Date(`${fechaInicio}T00:00:00`);
+    if (!Number.isNaN(ini.getTime())) {
+      clauses.push('e.fecha_creacion >= ?');
+      repl.push(ini);
+    }
+  } else if (fechaFin) {
+    const fin = new Date(`${fechaFin}T23:59:59.999`);
+    if (!Number.isNaN(fin.getTime())) {
+      clauses.push('e.fecha_creacion <= ?');
+      repl.push(fin);
+    }
+  }
+
+  if (categoria) {
+    clauses.push('e.categoria = ?');
+    repl.push(categoria);
+  }
+
+  if (estado === 'enviado') {
+    clauses.push('e.enviado = 1');
+  } else if (estado === 'no_enviado') {
+    clauses.push('(e.enviado IS NULL OR e.enviado = 0)');
+  } else if (estado === 'con_pdf') {
+    clauses.push("(e.informe IS NOT NULL AND TRIM(e.informe) <> '')");
+  } else if (estado === 'sin_pdf') {
+    clauses.push("(e.informe IS NULL OR TRIM(e.informe) = '')");
+  }
+
+  if (entrenador) {
+    clauses.push(
+      `EXISTS (SELECT 1 FROM detalle_evaluacion d WHERE d.id_evaluacion = e.id AND TRIM(d.responsable) = ?)`,
+    );
+    repl.push(entrenador);
+  }
+
+  return { whereSql: clauses.join(' AND '), repl, categoria, entrenador };
+}
+
 export const getResumenInformes = async (req, res) => {
   try {
-    const totalEvaluaciones = await Evaluaciones.count();
-    const conInforme = await Evaluaciones.count({ where: { informe: { [Op.ne]: null } } });
-    const sinInforme = await Evaluaciones.count({ where: { informe: null } });
-    const enviados = await Evaluaciones.count({ where: { enviado: true } });
+    const { whereSql, repl, categoria, entrenador } = buildListWhere(req.query);
+    const [rowResumen] = await sequelize.query(
+      `SELECT
+         COUNT(*) AS totalEvaluaciones,
+         SUM(CASE WHEN (e.informe IS NOT NULL AND TRIM(e.informe) <> '') THEN 1 ELSE 0 END) AS conInforme,
+         SUM(CASE WHEN (e.informe IS NULL OR TRIM(e.informe) = '') THEN 1 ELSE 0 END) AS sinInforme,
+         SUM(CASE WHEN e.enviado = 1 THEN 1 ELSE 0 END) AS enviados
+       FROM evaluaciones e
+       WHERE ${whereSql}`,
+      {
+        replacements: [...repl],
+        type: QueryTypes.SELECT,
+      },
+    );
+
+    const totalEvaluaciones = Number(rowResumen?.totalEvaluaciones ?? 0);
+    const conInforme = Number(rowResumen?.conInforme ?? 0);
+    const sinInforme = Number(rowResumen?.sinInforme ?? 0);
+    const enviados = Number(rowResumen?.enviados ?? 0);
 
     const { anio, mes, mesNum } = anioMesBogota();
+    const replSinInformeMes = { mes, anio, mesNum };
+    const extraClauses = [];
+    if (categoria) {
+      extraClauses.push('AND TRIM(i.IDCurso) = :categoria');
+      replSinInformeMes.categoria = categoria;
+    }
+    if (entrenador) {
+      extraClauses.push(
+        `AND EXISTS (
+          SELECT 1 FROM detalle_evaluacion d
+          INNER JOIN evaluaciones ev ON ev.id = d.id_evaluacion
+          WHERE TRIM(ev.identificacion) = TRIM(i.validador_participante)
+            AND TRIM(ev.categoria) = TRIM(i.IDCurso)
+            AND YEAR(ev.fecha_creacion) = :anio
+            AND MONTH(ev.fecha_creacion) = :mesNum
+            AND TRIM(d.responsable) = :entrenador
+        )`,
+      );
+      replSinInformeMes.entrenador = entrenador;
+    }
+
     const [row] = await sequelize.query(
-      `SELECT COUNT(DISTINCT i.validador_participante) AS c
+      `SELECT COUNT(*) AS c
        FROM inscripciones_1 i
-       INNER JOIN participantes p ON p.IDParticipante = i.validador_participante
        WHERE i.Estado = 'CONFIRMADO' AND i.Tipo = 1 AND i.Mes = :mes AND i.año = :anio
+       ${extraClauses.join('\n')}
        AND NOT EXISTS (
          SELECT 1 FROM evaluaciones e
-         WHERE TRIM(e.identificacion) = TRIM(p.IDParticipante)
+         WHERE TRIM(e.identificacion) = TRIM(i.validador_participante)
+         AND TRIM(e.categoria) = TRIM(i.IDCurso)
          AND e.informe IS NOT NULL
          AND YEAR(e.fecha_creacion) = :anio
          AND MONTH(e.fecha_creacion) = :mesNum
        )`,
       {
-        replacements: { mes, anio, mesNum },
+        replacements: replSinInformeMes,
         type: QueryTypes.SELECT,
       },
     );
@@ -92,62 +185,6 @@ export const getCategoriasInformes = async (req, res) => {
     return sendError(res, 500, 'Error al listar categorías', error.message);
   }
 };
-
-function buildListWhere(query) {
-  const fechaInicio = query.fechaInicio ? String(query.fechaInicio).trim() : '';
-  const fechaFin = query.fechaFin ? String(query.fechaFin).trim() : '';
-  const categoria = query.categoria ? String(query.categoria).trim() : '';
-  const entrenador = query.entrenador ? String(query.entrenador).trim() : '';
-  const estado = query.estado ? String(query.estado).trim().toLowerCase() : 'todos';
-
-  const clauses = ['1=1'];
-  const repl = [];
-
-  if (fechaInicio && fechaFin) {
-    const ini = new Date(`${fechaInicio}T00:00:00`);
-    const fin = new Date(`${fechaFin}T23:59:59.999`);
-    if (!Number.isNaN(ini.getTime()) && !Number.isNaN(fin.getTime())) {
-      clauses.push('e.fecha_creacion BETWEEN ? AND ?');
-      repl.push(ini, fin);
-    }
-  } else if (fechaInicio) {
-    const ini = new Date(`${fechaInicio}T00:00:00`);
-    if (!Number.isNaN(ini.getTime())) {
-      clauses.push('e.fecha_creacion >= ?');
-      repl.push(ini);
-    }
-  } else if (fechaFin) {
-    const fin = new Date(`${fechaFin}T23:59:59.999`);
-    if (!Number.isNaN(fin.getTime())) {
-      clauses.push('e.fecha_creacion <= ?');
-      repl.push(fin);
-    }
-  }
-
-  if (categoria) {
-    clauses.push('e.categoria = ?');
-    repl.push(categoria);
-  }
-
-  if (estado === 'enviado') {
-    clauses.push('e.enviado = 1');
-  } else if (estado === 'no_enviado') {
-    clauses.push('(e.enviado IS NULL OR e.enviado = 0)');
-  } else if (estado === 'con_pdf') {
-    clauses.push("(e.informe IS NOT NULL AND TRIM(e.informe) <> '')");
-  } else if (estado === 'sin_pdf') {
-    clauses.push('(e.informe IS NULL OR TRIM(e.informe) = \'\')');
-  }
-
-  if (entrenador) {
-    clauses.push(
-      `EXISTS (SELECT 1 FROM detalle_evaluacion d WHERE d.id_evaluacion = e.id AND TRIM(d.responsable) = ?)`,
-    );
-    repl.push(entrenador);
-  }
-
-  return { whereSql: clauses.join(' AND '), repl };
-}
 
 export const listarInformesAdmin = async (req, res) => {
   try {
