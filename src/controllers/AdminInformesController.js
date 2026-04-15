@@ -17,6 +17,7 @@ function anioMesBogota() {
 function buildListWhere(query) {
   const fechaInicio = query.fechaInicio ? String(query.fechaInicio).trim() : '';
   const fechaFin = query.fechaFin ? String(query.fechaFin).trim() : '';
+  const anio = query.anio ? String(query.anio).trim() : '';
   const categoria = query.categoria ? String(query.categoria).trim() : '';
   const entrenador = query.entrenador ? String(query.entrenador).trim() : '';
   const estado = query.estado ? String(query.estado).trim().toLowerCase() : 'todos';
@@ -45,6 +46,11 @@ function buildListWhere(query) {
     }
   }
 
+  if (/^\d{4}$/.test(anio)) {
+    clauses.push('YEAR(e.fecha_creacion) = ?');
+    repl.push(Number(anio));
+  }
+
   if (categoria) {
     clauses.push('e.categoria = ?');
     repl.push(categoria);
@@ -67,12 +73,12 @@ function buildListWhere(query) {
     repl.push(entrenador);
   }
 
-  return { whereSql: clauses.join(' AND '), repl, categoria, entrenador };
+  return { whereSql: clauses.join(' AND '), repl, categoria, entrenador, anio };
 }
 
 export const getResumenInformes = async (req, res) => {
   try {
-    const { whereSql, repl, categoria, entrenador } = buildListWhere(req.query);
+    const { whereSql, repl, categoria, entrenador, anio } = buildListWhere(req.query);
     const [rowResumen] = await sequelize.query(
       `SELECT
          COUNT(*) AS totalEvaluaciones,
@@ -92,8 +98,9 @@ export const getResumenInformes = async (req, res) => {
     const sinInforme = Number(rowResumen?.sinInforme ?? 0);
     const enviados = Number(rowResumen?.enviados ?? 0);
 
-    const { anio, mes, mesNum } = anioMesBogota();
-    const replSinInformeMes = { mes, anio, mesNum };
+    const { anio: anioActualBogota, mes, mesNum } = anioMesBogota();
+    const anioRef = /^\d{4}$/.test(anio) ? Number(anio) : anioActualBogota;
+    const replSinInformeMes = { mes, anio: anioRef, mesNum };
     const extraClauses = [];
     if (categoria) {
       extraClauses.push('AND TRIM(i.IDCurso) = :categoria');
@@ -241,19 +248,104 @@ export const listarInformesAdmin = async (req, res) => {
 
 export const getGraficoCategoriasInformes = async (req, res) => {
   try {
-    const { whereSql, repl } = buildListWhere(req.query);
+    const categoria = req.query.categoria ? String(req.query.categoria).trim() : '';
+    const entrenador = req.query.entrenador ? String(req.query.entrenador).trim() : '';
+    const fechaInicio = req.query.fechaInicio ? String(req.query.fechaInicio).trim() : '';
+    const fechaFin = req.query.fechaFin ? String(req.query.fechaFin).trim() : '';
+    const anioFiltro = req.query.anio ? String(req.query.anio).trim() : '';
+    const { anio: anioActualBogota, mes } = anioMesBogota();
+    const anio = /^\d{4}$/.test(anioFiltro) ? Number(anioFiltro) : anioActualBogota;
+
+    const repl = { anio, mes };
+    const inscClauses = [
+      'i.Tipo = 1',
+      "i.Estado IN ('CONFIRMADO', 'INCAPACITADO', 'RETIRADO')",
+      'i.año = :anio',
+      'i.Mes = :mes',
+    ];
+    if (categoria) {
+      inscClauses.push('TRIM(i.IDCurso) = :categoria');
+      repl.categoria = categoria;
+    }
+
+    const evalClauses = [
+      'TRIM(e.identificacion) = TRIM(i.validador_participante)',
+      'TRIM(e.categoria) = TRIM(i.IDCurso)',
+      "e.informe IS NOT NULL AND TRIM(e.informe) <> ''",
+    ];
+
+    if (fechaInicio && fechaFin) {
+      const ini = new Date(`${fechaInicio}T00:00:00`);
+      const fin = new Date(`${fechaFin}T23:59:59.999`);
+      if (!Number.isNaN(ini.getTime()) && !Number.isNaN(fin.getTime())) {
+        evalClauses.push('e.fecha_creacion BETWEEN :fechaInicio AND :fechaFin');
+        repl.fechaInicio = ini;
+        repl.fechaFin = fin;
+      }
+    } else if (fechaInicio) {
+      const ini = new Date(`${fechaInicio}T00:00:00`);
+      if (!Number.isNaN(ini.getTime())) {
+        evalClauses.push('e.fecha_creacion >= :fechaInicio');
+        repl.fechaInicio = ini;
+      }
+    } else if (fechaFin) {
+      const fin = new Date(`${fechaFin}T23:59:59.999`);
+      if (!Number.isNaN(fin.getTime())) {
+        evalClauses.push('e.fecha_creacion <= :fechaFin');
+        repl.fechaFin = fin;
+      }
+    }
+
+    if (entrenador) {
+      evalClauses.push(
+        `EXISTS (
+           SELECT 1
+           FROM detalle_evaluacion d
+           WHERE d.id_evaluacion = e.id
+             AND TRIM(d.responsable) = :entrenador
+         )`,
+      );
+      repl.entrenador = entrenador;
+    }
+
+    const evalExisteSql = evalClauses.join(' AND ');
+
     const rows = await sequelize.query(
       `SELECT
-         COALESCE(NULLIF(TRIM(e.nombreCategoria), ''), NULLIF(TRIM(e.categoria), ''), 'Sin categoría') AS categoria,
-         SUM(CASE WHEN e.enviado = 1 THEN 1 ELSE 0 END) AS enviados,
-         SUM(CASE WHEN (e.enviado IS NULL OR e.enviado = 0) THEN 1 ELSE 0 END) AS noEnviados,
+         COALESCE(
+           NULLIF(TRIM(c.Nombre_Corto_Curso), ''),
+           NULLIF(TRIM(c.Nombre_del_curso), ''),
+           TRIM(i.IDCurso),
+           'Sin categoría'
+         ) AS categoria,
+         SUM(
+           CASE WHEN EXISTS (
+             SELECT 1
+             FROM evaluaciones e
+             WHERE ${evalExisteSql}
+               AND e.enviado = 1
+           ) THEN 1 ELSE 0 END
+         ) AS enviados,
+         SUM(
+           CASE WHEN EXISTS (
+             SELECT 1
+             FROM evaluaciones e
+             WHERE ${evalExisteSql}
+           ) THEN 0 ELSE 1 END
+         ) AS noEnviados,
          COUNT(*) AS total
-       FROM evaluaciones e
-       WHERE ${whereSql}
-       GROUP BY COALESCE(NULLIF(TRIM(e.nombreCategoria), ''), NULLIF(TRIM(e.categoria), ''), 'Sin categoría')
+       FROM inscripciones_1 i
+       LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(i.IDCurso)
+       WHERE ${inscClauses.join(' AND ')}
+       GROUP BY COALESCE(
+         NULLIF(TRIM(c.Nombre_Corto_Curso), ''),
+         NULLIF(TRIM(c.Nombre_del_curso), ''),
+         TRIM(i.IDCurso),
+         'Sin categoría'
+       )
        ORDER BY enviados ASC, total ASC, categoria ASC`,
       {
-        replacements: [...repl],
+        replacements: repl,
         type: QueryTypes.SELECT,
       },
     );
