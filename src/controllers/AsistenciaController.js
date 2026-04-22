@@ -1,4 +1,4 @@
-import { Op } from 'sequelize';
+import { Op, fn, col, where as sqlWhere } from 'sequelize';
 import Asistencia from '../database/models/AsistenciaModel.js';
 import Asignaciones from '../database/models/AsignacionModel.js';
 import Cursos from '../database/models/CursosModel.js';
@@ -82,10 +82,18 @@ export const obtenerAsistencia = async (req, res) => {
       idcurso: { [Op.in]: cursosAsignados },
     };
 
+    /** Comparar por fecha de calendario (solo día) para evitar desfases por hora/UTC en DATETIME. */
     if (fechaInicio || fechaFin) {
-      where.fecha = {};
-      if (fechaInicio) where.fecha[Op.gte] = fechaInicio;
-      if (fechaFin) where.fecha[Op.lte] = fechaFin;
+      const dateParts = [];
+      if (fechaInicio) {
+        dateParts.push(sqlWhere(fn('DATE', col('fecha')), { [Op.gte]: fechaInicio }));
+      }
+      if (fechaFin) {
+        dateParts.push(sqlWhere(fn('DATE', col('fecha')), { [Op.lte]: fechaFin }));
+      }
+      if (dateParts.length) {
+        where[Op.and] = [...(where[Op.and] || []), ...dateParts];
+      }
     }
 
     if (q) {
