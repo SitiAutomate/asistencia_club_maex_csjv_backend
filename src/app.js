@@ -13,6 +13,7 @@ import EvaluacionesRoutes from './routes/evaluacionesRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import integracionClubRoutes from './routes/integracionClubRoutes.js';
+import { getUploadsRootDir } from './utils/storagePaths.js';
 const app = express();
 
 app.use(
@@ -25,7 +26,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan('dev'));
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(getUploadsRootDir()));
 
 /**
  * Microsoft suele tener registrada la URL del API (ej. :3006/callback-microsoft).

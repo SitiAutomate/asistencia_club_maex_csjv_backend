@@ -6,6 +6,12 @@ import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import { env } from '../config/env.js';
 import { toPublicUploadPath } from './evaluacionUploads.js';
+import {
+  getEvaluacionesFotosDir,
+  getEvaluacionesInformesDir,
+  getUploadsRootDir,
+  resolveUploadsAbsoluteFromPublicPath,
+} from './storagePaths.js';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -64,7 +70,12 @@ const sanitizeForPdfText = (value) =>
   String(value ?? '')
     .replace(/\u00D0/g, '')
     .replace(/[^\S\r\n]+/g, ' ')
-    .replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, '')
+    .replace(/./g, (ch) => {
+      const code = ch.charCodeAt(0);
+      const isForbiddenControl =
+        code === 0x7f || (code <= 0x1f && code !== 0x09 && code !== 0x0a && code !== 0x0d);
+      return isForbiddenControl ? '' : ch;
+    })
     .trim();
 
 const formatDateForFileName = (dateInput) => {
@@ -83,17 +94,17 @@ const tryConvertWebpToPng = async (sourcePath) => {
 const resolvePhotoPath = (fotoPublicPath) => {
   if (!fotoPublicPath) return null;
 
+  const fromPublic = resolveUploadsAbsoluteFromPublicPath(fotoPublicPath);
+  if (fromPublic && fs.existsSync(fromPublic)) return fromPublic;
+
   const normalized = String(fotoPublicPath).replace(/\\/g, '/');
-  const normalizedWithoutLeadingSlash = normalized.replace(/^\/+/, '');
   const fileName = path.basename(normalized);
+  const uploadsRoot = getUploadsRootDir();
+  const fotosDir = getEvaluacionesFotosDir();
 
   return resolveFirstExistingPath([
-    path.resolve(process.cwd(), normalizedWithoutLeadingSlash),
-    path.resolve(backendRoot, normalizedWithoutLeadingSlash),
-    path.resolve(process.cwd(), 'uploads', 'evaluaciones', 'fotos', fileName),
-    path.resolve(backendRoot, 'uploads', 'evaluaciones', 'fotos', fileName),
-    path.resolve(process.cwd(), 'uploads', 'evaluaciones', fileName),
-    path.resolve(backendRoot, 'uploads', 'evaluaciones', fileName),
+    path.resolve(fotosDir, fileName),
+    path.resolve(uploadsRoot, 'evaluaciones', fileName),
   ]);
 };
 
@@ -215,7 +226,7 @@ export const generateInformePdf = async ({
     descripcion: sanitizeForPdfText(item?.descripcion || ''),
   }));
 
-  const uploadsDir = path.resolve(process.cwd(), 'uploads', 'evaluaciones', 'informes');
+  const uploadsDir = getEvaluacionesInformesDir();
   fs.mkdirSync(uploadsDir, { recursive: true });
 
   const backgroundPath = resolveBackgroundPath();

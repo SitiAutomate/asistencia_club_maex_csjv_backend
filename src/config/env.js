@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import path from 'path';
 import { normalizarFechaEnv } from '../utils/informeEnvioWindow.js';
 
 dotenv.config();
@@ -69,6 +70,7 @@ export const env = {
       process.env.APP_FRONTEND_URL ||
       'http://localhost:5173'
     ).replace(/\/$/, ''),
+    uploadsDir: path.resolve(process.env.UPLOADS_DIR || path.resolve(process.cwd(), 'uploads')),
   },
   db: {
     host: process.env.DB_HOST || 'localhost',

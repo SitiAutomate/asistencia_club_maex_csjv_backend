@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
+import { resolveUploadsAbsoluteFromPublicPath } from './storagePaths.js';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -54,12 +55,7 @@ export const resolveMaexLogoPathForEmail = () =>
   ]);
 
 export const resolveInformeAbsolutePath = (informePublicPath) => {
-  if (!informePublicPath) return null;
-  const rel = String(informePublicPath).replace(/^\/+/, '').replace(/\\/g, '/');
-  const abs = path.resolve(process.cwd(), rel);
-  const uploadsBase = path.resolve(process.cwd(), 'uploads');
-  if (!abs.startsWith(uploadsBase)) return null;
-  return abs;
+  return resolveUploadsAbsoluteFromPublicPath(informePublicPath);
 };
 
 const escapeHtml = (value) =>

@@ -1,14 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
-import { fileURLToPath } from 'url';
+import { getEvaluacionesFotosDir } from '../utils/storagePaths.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const backendRoot = path.resolve(__dirname, '..', '..');
-
-const uploadsRoot = path.resolve(backendRoot, 'uploads', 'evaluaciones');
-const fotosDir = path.join(uploadsRoot, 'fotos');
+const fotosDir = getEvaluacionesFotosDir();
 
 fs.mkdirSync(fotosDir, { recursive: true });
 

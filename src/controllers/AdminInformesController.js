@@ -272,6 +272,7 @@ export const getGraficoCategoriasInformes = async (req, res) => {
       'TRIM(e.identificacion) = TRIM(i.validador_participante)',
       'TRIM(e.categoria) = TRIM(i.IDCurso)',
       "e.informe IS NOT NULL AND TRIM(e.informe) <> ''",
+      'YEAR(e.fecha_creacion) = :anio',
     ];
 
     if (fechaInicio && fechaFin) {

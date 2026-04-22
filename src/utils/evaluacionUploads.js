@@ -1,19 +1,15 @@
 import fs from 'fs';
-import path from 'path';
+import { resolveUploadsAbsoluteFromPublicPath, toUploadsPublicPathFromAbsolute } from './storagePaths.js';
 
 export const toPublicUploadPath = (absolutePath) => {
-  if (!absolutePath) return null;
-  const relative = path.relative(process.cwd(), absolutePath);
-  return `/${relative.replace(/\\/g, '/')}`;
+  return toUploadsPublicPathFromAbsolute(absolutePath);
 };
 
 export const safeRemoveInformeFile = (informePublicPath) => {
   if (!informePublicPath) return;
   try {
-    const rel = String(informePublicPath).replace(/^\/+/, '');
-    const abs = path.resolve(process.cwd(), rel);
-    const uploadsBase = path.resolve(process.cwd(), 'uploads');
-    if (!abs.startsWith(uploadsBase) || !fs.existsSync(abs)) return;
+    const abs = resolveUploadsAbsoluteFromPublicPath(informePublicPath);
+    if (!abs || !fs.existsSync(abs)) return;
     fs.unlinkSync(abs);
   } catch {
     // Ignorar fallos al borrar PDF anterior.
