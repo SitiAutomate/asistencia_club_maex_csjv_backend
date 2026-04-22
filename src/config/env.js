@@ -4,6 +4,17 @@ import { normalizarFechaEnv } from '../utils/informeEnvioWindow.js';
 
 dotenv.config();
 
+const decodeIfUrlEncoded = (value) => {
+  if (value == null) return '';
+  const raw = String(value).trim();
+  if (!raw) return '';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+};
+
 const informeEnvioHabilitadoRaw = process.env.INFORME_ENVIO_HABILITADO;
 const informeEnvioHabilitadoClean =
   informeEnvioHabilitadoRaw == null
@@ -33,7 +44,7 @@ export const env = {
     host: process.env.EMAIL_HOST || '',
     port: Number(process.env.EMAIL_PORT) || 587,
     user: process.env.EMAIL_USER || '',
-    pass: process.env.EMAIL_PASS || '',
+    pass: decodeIfUrlEncoded(process.env.EMAIL_PASS || ''),
     from: process.env.EMAIL_FROM || process.env.EMAIL_USER || '',
     secure:
       process.env.EMAIL_SECURE === 'true' || Number(process.env.EMAIL_PORT) === 465,
@@ -79,7 +90,7 @@ export const env = {
     port: Number(process.env.DB_PORT) || 3306,
     name: process.env.DB_NAME || 'club_asistencia',
     user: process.env.DB_USER || 'root',
-    password: process.env.DB_PASSWORD || '',
+    password: decodeIfUrlEncoded(process.env.DB_PASSWORD || ''),
     dialect: process.env.DB_DIALECT || 'mysql',
     connectTimeoutMs: Number(process.env.DB_CONNECT_TIMEOUT_MS) || 8000,
   },

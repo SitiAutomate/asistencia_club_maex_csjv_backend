@@ -385,6 +385,25 @@ const mensajeVentanaInformeCerrada = (code) => {
   return 'Ya se cumplió la fecha de envío de informes por correo.';
 };
 
+const buildEnvioCorreoErrorMessage = (error) => {
+  const code = String(error?.code || '').toUpperCase();
+  const responseCode = Number(error?.responseCode || 0);
+  const raw = String(error?.message || '').trim();
+  const smtpResponse = String(error?.response || '').trim();
+  const detail = raw || smtpResponse || 'No fue posible completar el envío.';
+
+  if (code === 'EAUTH' || responseCode === 535) {
+    return 'Error de autenticación SMTP (EMAIL_USER/EMAIL_PASS inválidos o no autorizados).';
+  }
+  if (code === 'ESOCKET' || code === 'ETIMEDOUT') {
+    return 'No se pudo conectar al servidor SMTP (host/puerto/SSL o firewall).';
+  }
+  if (detail.includes('SendAsDenied') || responseCode === 554) {
+    return 'La cuenta SMTP no tiene permiso para enviar con el remitente configurado.';
+  }
+  return `Fallo SMTP: ${detail}`;
+};
+
 export const getVentanaInformeEnvio = (req, res) => {
   const result = evaluateInformeEnvioWindow(env.informeEnvio);
   const fechaHoy = fechaHoyColombia();
@@ -488,6 +507,12 @@ export const enviarEvaluacion = async (req, res) => {
       'Informe enviado por correo y evaluacion marcada como enviada',
     );
   } catch (error) {
-    return sendError(res, 500, 'Error al enviar el informe por correo', error.message);
+    const reason = buildEnvioCorreoErrorMessage(error);
+    return sendError(
+      res,
+      500,
+      `Error al enviar el informe por correo: ${reason}`,
+      reason,
+    );
   }
 };
