@@ -80,7 +80,7 @@ Adjunto a este correo encontrarás el informe de desempeño correspondiente a:
 
 Participante: ${p}
 Categoría: ${c}
-Este informe hace parte del proceso de formación integral que promovemos en el Club Deportivo San José de Las Vegas y Maex, donde buscamos potenciar no solo las habilidades deportivas, sino también el desarrollo personal de cada uno de nuestros estudiantes
+Este informe hace parte del proceso de formación integral que promovemos en el Club Deportivo San José de Las Vegas y Maex, donde buscamos potenciar no solo las habilidades deportivas, sino también el desarrollo personal de cada uno de nuestros participantes
 
 Si tienes alguna inquietud o comentario, envíanos un correo a clubdeportivo@sanjosevegas.edu.co Estaremos encantados de acompañarte en este camino.
 
@@ -170,7 +170,7 @@ ${row('Categoría:', c)}
 </tr>
 <tr>
 <td style="padding:0 32px 20px;font-family:${ff};font-size:15px;line-height:1.65;color:${muted};">
-<p style="margin:0;">Este informe hace parte del proceso de formación integral que promovemos en el Club Deportivo San José de Las Vegas y Maex, donde buscamos potenciar no solo las habilidades deportivas, sino también el desarrollo personal de cada uno de nuestros estudiantes.</p>
+<p style="margin:0;">Este informe hace parte del proceso de formación integral que promovemos en el Club Deportivo San José de Las Vegas y Maex, donde buscamos potenciar no solo las habilidades deportivas, sino también el desarrollo personal de cada uno de nuestros participantes.</p>
 </td>
 </tr>
 <tr>

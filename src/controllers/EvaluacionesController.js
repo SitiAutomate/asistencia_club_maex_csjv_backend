@@ -3,6 +3,8 @@ import Evaluaciones from '../database/models/EvaluacionesModel.js';
 import DetalleEvaluacion from '../database/models/DetalleEvaluacionModel.js';
 import Rubricas from '../database/models/RubricasModel.js';
 import Usuarios from '../database/models/UsuariosModel.js';
+import Cursos from '../database/models/CursosModel.js';
+import Entrenadores from '../database/models/EntrenadoresModel.js';
 import Inscripciones from '../database/models/InscripcionesModel.js';
 import Participantes from '../database/models/ParticipantesModel.js';
 import Padres from '../database/models/PadresModel.js';
@@ -163,6 +165,7 @@ export const crearEvaluacion = async (req, res) => {
           nombre: rubrica?.nombre || `Rubrica ${detalle.id_rubrica}`,
           tipo: rubrica?.tipo || 'SIN_TIPO',
           valor: detalle.valor,
+          descripcionGeneral: rubrica?.descripcion || '',
           descripcion: getNivelTextoByValor(rubrica, detalle.valor),
         };
       });
@@ -175,15 +178,17 @@ export const crearEvaluacion = async (req, res) => {
       );
 
       const responsableEmail = emailSesion;
-      let responsableNombre = responsableEmail || 'No definido';
+      let responsableNombre =
+        (await resolveEntrenadorNombreDesdeCurso({ categoria: categoriaKey, transaction })) || '';
 
-      if (responsableEmail) {
+      if (!responsableNombre && responsableEmail) {
         const user = await Usuarios.findOne({
           where: { email: String(responsableEmail).trim() },
           transaction,
         });
-        if (user?.nombre) responsableNombre = user.nombre;
+        if (user?.nombre) responsableNombre = String(user.nombre).trim().toUpperCase();
       }
+      if (!responsableNombre) responsableNombre = 'NO DEFINIDO';
 
       const fotoParaPdf = fotoPath ?? evaluacion.foto ?? null;
 
@@ -351,6 +356,27 @@ const obtenerInscritoParaCorreos = async (identificacion) => {
       },
     ],
   });
+};
+
+const resolveEntrenadorNombreDesdeCurso = async ({ categoria, transaction }) => {
+  const categoriaKey = String(categoria || '').trim();
+  if (!categoriaKey) return null;
+
+  const curso = await Cursos.findOne({
+    where: { ID_Curso: categoriaKey },
+    attributes: ['Docente'],
+    transaction,
+  });
+  const correoEntrenador = String(curso?.Docente || '').trim();
+  if (!correoEntrenador) return null;
+
+  const entrenador = await Entrenadores.findOne({
+    where: { Correo: correoEntrenador },
+    attributes: ['Nombre_Docente', 'Correo'],
+    transaction,
+  });
+  const nombre = String(entrenador?.Nombre_Docente || '').trim();
+  return nombre ? nombre.toUpperCase() : correoEntrenador.toUpperCase();
 };
 
 const mensajeVentanaInformeCerrada = (code) => {

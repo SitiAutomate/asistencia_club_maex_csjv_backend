@@ -146,16 +146,27 @@ const drawSection = (doc, title, subtitle, items, yStart, drawBackground) => {
     );
     const textWidth = blockWidth - 32 - badgeWidth - badgePaddingX;
     const titleText = sanitizeForPdfText(item.nombre || 'Rúbrica');
-    const descText =
+    const generalDescBaseText =
+      sanitizeForPdfText(item.descripcionGeneral) || 'Sin descripción general de la rúbrica.';
+    const generalDescText = `Descripción: ${generalDescBaseText}`;
+    const nivelDescBaseText =
       sanitizeForPdfText(item.descripcion) || 'Sin descripción configurada para este nivel.';
+    const nivelDescText = `Calificación otorgada: ${nivelDescBaseText}`;
     const titleHeight = doc.font('Helvetica-Bold').fontSize(13).heightOfString(titleText, {
       width: textWidth,
     });
-    const descHeight = doc.font('Helvetica').fontSize(11.5).heightOfString(descText, {
+    const generalDescHeight = doc.font('Helvetica').fontSize(11.5).heightOfString(generalDescText, {
       width: textWidth,
       lineGap: 2,
     });
-    const blockHeight = Math.max(96, 16 + badgeHeight + 8 + titleHeight + 8 + descHeight + 16);
+    const nivelDescHeight = doc.font('Helvetica').fontSize(11.5).heightOfString(nivelDescText, {
+      width: textWidth,
+      lineGap: 2,
+    });
+    const blockHeight = Math.max(
+      96,
+      16 + badgeHeight + 8 + titleHeight + 8 + generalDescHeight + 6 + nivelDescHeight + 16,
+    );
 
     if (y + blockHeight > PAGE_HEIGHT - 40) {
       doc.addPage({ size: 'A4', margin: 0 });
@@ -190,10 +201,23 @@ const drawSection = (doc, title, subtitle, items, yStart, drawBackground) => {
       .font('Helvetica')
       .fontSize(11.5)
       .fillColor('#243B53')
-      .text(descText, MARGIN_X + 16, y + 12 + badgeHeight + 8 + titleHeight + 8, {
+      .text(generalDescText, MARGIN_X + 16, y + 12 + badgeHeight + 8 + titleHeight + 8, {
         width: textWidth,
         lineGap: 2,
       });
+    doc
+      .font('Helvetica')
+      .fontSize(11.5)
+      .fillColor('#243B53')
+      .text(
+        nivelDescText,
+        MARGIN_X + 16,
+        y + 12 + badgeHeight + 8 + titleHeight + 8 + generalDescHeight + 6,
+        {
+        width: textWidth,
+        lineGap: 2,
+        },
+      );
     y += blockHeight + 14;
   }
 
@@ -219,12 +243,14 @@ export const generateInformePdf = async ({
     ...item,
     nombre: sanitizeForPdfText(item?.nombre || 'Rúbrica'),
     valor: sanitizeForPdfText(item?.valor || ''),
+    descripcionGeneral: sanitizeForPdfText(item?.descripcionGeneral || ''),
     descripcion: sanitizeForPdfText(item?.descripcion || ''),
   }));
   const actitudinalesLimpios = (desempenosActitudinales || []).map((item) => ({
     ...item,
     nombre: sanitizeForPdfText(item?.nombre || 'Rúbrica'),
     valor: sanitizeForPdfText(item?.valor || ''),
+    descripcionGeneral: sanitizeForPdfText(item?.descripcionGeneral || ''),
     descripcion: sanitizeForPdfText(item?.descripcion || ''),
   }));
 
