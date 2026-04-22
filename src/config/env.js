@@ -20,6 +20,8 @@ export const env = {
   startWithoutDb: process.env.START_WITHOUT_DB === 'true',
   evaluaciones: {
     fondoPath: process.env.EVALUACION_FONDO_PATH || '',
+    logoPath: process.env.EVALUACION_LOGO_PATH || '',
+    logoMaexPath: process.env.EVALUACION_LOGO_MAEX_PATH || '',
   },
   /** Ventana para enviar informes por correo (fecha según America/Bogota). */
   informeEnvio: {

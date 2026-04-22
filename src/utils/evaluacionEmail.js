@@ -28,6 +28,8 @@ const tryConvertWebpToPng = async (sourcePath) => {
 /** PNG/JPEG primero (mejor soporte en clientes de correo); WebP como último recurso. */
 export const resolveLogoPathForEmail = () =>
   resolveFirstExistingPath([
+    env.evaluaciones.logoPath ? path.resolve(env.evaluaciones.logoPath) : null,
+    env.evaluaciones.logoPath ? path.resolve(process.cwd(), env.evaluaciones.logoPath) : null,
     path.resolve(process.cwd(), 'src', 'assets', 'logo.png'),
     path.resolve(backendRoot, 'src', 'assets', 'logo.png'),
     path.resolve(process.cwd(), 'assets', 'logo.png'),
@@ -44,6 +46,8 @@ export const resolveLogoPathForEmail = () =>
 /** Logo Maex (opcional): coloca logo-maex.png o maex.png en src/assets o assets/. */
 export const resolveMaexLogoPathForEmail = () =>
   resolveFirstExistingPath([
+    env.evaluaciones.logoMaexPath ? path.resolve(env.evaluaciones.logoMaexPath) : null,
+    env.evaluaciones.logoMaexPath ? path.resolve(process.cwd(), env.evaluaciones.logoMaexPath) : null,
     path.resolve(backendRoot, 'src', 'assets', 'logo-maex.png'),
     path.resolve(process.cwd(), 'src', 'assets', 'logo-maex.png'),
     path.resolve(backendRoot, 'src', 'assets', 'maex.png'),

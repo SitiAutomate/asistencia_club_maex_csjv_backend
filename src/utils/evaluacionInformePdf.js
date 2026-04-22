@@ -46,6 +46,8 @@ const resolveBackgroundPath = () => {
 
 const resolveLogoPath = () =>
   resolveFirstExistingPath([
+    env.evaluaciones.logoPath ? path.resolve(env.evaluaciones.logoPath) : null,
+    env.evaluaciones.logoPath ? path.resolve(process.cwd(), env.evaluaciones.logoPath) : null,
     path.resolve(process.cwd(), 'src', 'assets', 'logo.webp'),
     path.resolve(process.cwd(), 'src', 'assets', 'logo.png'),
     path.resolve(backendRoot, 'src', 'assets', 'logo.webp'),
