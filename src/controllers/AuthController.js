@@ -22,6 +22,25 @@ import { env } from '../config/env.js';
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const generateDbToken = () => crypto.randomBytes(32).toString('hex'); // 64 chars
 
+const buildUsuarioIdFromMicrosoftProfile = async ({ email, profile }) => {
+  const profileId = String(profile?.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 18);
+  const localPart = String(email || '')
+    .split('@')[0]
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 14);
+  const seed = profileId || localPart || 'msuser';
+  let candidate = `ms_${seed}`;
+  let idx = 1;
+  // usuarioid es unique y obligatorio.
+  // Si existe colisión, agrega sufijo incremental.
+  while (true) {
+    const existing = await Usuarios.findOne({ where: { usuarioid: candidate } });
+    if (!existing) return candidate;
+    candidate = `ms_${seed}_${idx}`;
+    idx += 1;
+  }
+};
+
 export const registerProveedor = async (req, res) => {
   try {
     const { email, password, nombre, usuarioid } = req.body;
@@ -194,22 +213,30 @@ export const microsoftToken = async (req, res) => {
     if (!email) {
       return sendError(res, 400, 'No se pudo obtener el correo desde Microsoft');
     }
-    const user = await Usuarios.findOne({ where: { email } });
+    let user = await Usuarios.findOne({ where: { email } });
+
     if (!user) {
+      const usuarioid = await buildUsuarioIdFromMicrosoftProfile({ email, profile });
+      const nombre = String(profile.displayName || profile.givenName || '').trim() || email;
+      user = await Usuarios.create({
+        usuarioid,
+        email,
+        nombre,
+        rol: ROLES.ENTRENADOR,
+        confirmado: true,
+        token: '',
+        password: null,
+      });
+    }
+
+    if (user.rol === ROLES.PROVEEDOR) {
       return sendError(
         res,
         403,
-        'Su correo no esta registrado en el sistema. Solicite acceso al administrador.',
+        'Los proveedores deben iniciar sesion con correo y contraseña en /api/auth/login',
       );
     }
     if (!ROLES_MICROSOFT.includes(user.rol)) {
-      if (user.rol === ROLES.PROVEEDOR) {
-        return sendError(
-          res,
-          403,
-          'Los proveedores deben iniciar sesion con correo y contraseña en /api/auth/login',
-        );
-      }
       return sendError(res, 403, 'Rol no autorizado para acceso Microsoft');
     }
     if (!user.confirmado) {
