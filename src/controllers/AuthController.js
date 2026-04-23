@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import Usuarios from '../database/models/UsuariosModel.js';
 import { sendError, sendSuccess } from '../utils/responseHandler.js';
-import { ROLES, ROLES_MICROSOFT } from '../constants/roles.js';
+import { ROLES } from '../constants/roles.js';
 import {
   signAccessToken,
 } from '../utils/authJwt.js';
@@ -22,23 +22,12 @@ import { env } from '../config/env.js';
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const generateDbToken = () => crypto.randomBytes(32).toString('hex'); // 64 chars
 
-const buildUsuarioIdFromMicrosoftProfile = async ({ email, profile }) => {
-  const profileId = String(profile?.id || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 18);
+const buildMicrosoftUsuarioIdFallback = (email) => {
   const localPart = String(email || '')
     .split('@')[0]
     .replace(/[^a-zA-Z0-9]/g, '')
-    .slice(0, 14);
-  const seed = profileId || localPart || 'msuser';
-  let candidate = `ms_${seed}`;
-  let idx = 1;
-  // usuarioid es unique y obligatorio.
-  // Si existe colisión, agrega sufijo incremental.
-  while (true) {
-    const existing = await Usuarios.findOne({ where: { usuarioid: candidate } });
-    if (!existing) return candidate;
-    candidate = `ms_${seed}_${idx}`;
-    idx += 1;
-  }
+    .slice(0, 24);
+  return localPart || 'ms_user';
 };
 
 export const registerProveedor = async (req, res) => {
@@ -213,41 +202,37 @@ export const microsoftToken = async (req, res) => {
     if (!email) {
       return sendError(res, 400, 'No se pudo obtener el correo desde Microsoft');
     }
-    let user = await Usuarios.findOne({ where: { email } });
+    const user = await Usuarios.findOne({ where: { email } });
 
-    if (!user) {
-      const usuarioid = await buildUsuarioIdFromMicrosoftProfile({ email, profile });
-      const nombre = String(profile.displayName || profile.givenName || '').trim() || email;
-      user = await Usuarios.create({
-        usuarioid,
-        email,
-        nombre,
-        rol: ROLES.ENTRENADOR,
-        confirmado: true,
-        token: '',
-        password: null,
-      });
-    }
-
-    if (user.rol === ROLES.PROVEEDOR) {
+    if (user?.rol === ROLES.PROVEEDOR) {
       return sendError(
         res,
         403,
         'Los proveedores deben iniciar sesion con correo y contraseña en /api/auth/login',
       );
     }
-    if (!ROLES_MICROSOFT.includes(user.rol)) {
+
+    // Solo "Administrador" depende de existir en BD. El resto entra por Microsoft como Entrenador.
+    let rol = ROLES.ENTRENADOR;
+    let usuarioid = buildMicrosoftUsuarioIdFallback(email);
+    let nombre = String(profile.displayName || profile.givenName || '').trim() || email;
+
+    if (user?.rol === ROLES.ADMINISTRADOR) {
+      if (!user.confirmado) {
+        return sendError(res, 403, 'Usuario no confirmado. Active la cuenta con el administrador.');
+      }
+      rol = ROLES.ADMINISTRADOR;
+      usuarioid = user.usuarioid || usuarioid;
+      nombre = user.nombre || nombre;
+    } else if (user?.rol && user.rol !== ROLES.ENTRENADOR && user.rol !== ROLES.PROVEEDOR) {
       return sendError(res, 403, 'Rol no autorizado para acceso Microsoft');
     }
-    if (!user.confirmado) {
-      return sendError(res, 403, 'Usuario no confirmado. Active la cuenta con el administrador.');
-    }
-    const displayName = profile.displayName || profile.givenName || '';
-    if (displayName && (!user.nombre || String(user.nombre).trim() === '')) {
-      await user.update({ nombre: displayName });
-    }
-    const fresh = await Usuarios.findOne({ where: { email } });
-    const accessToken = signAccessToken(fresh);
+
+    const accessToken = signAccessToken({
+      email,
+      rol,
+      usuarioid,
+    });
     return sendSuccess(
       res,
       200,
@@ -255,10 +240,10 @@ export const microsoftToken = async (req, res) => {
         accessToken,
         tokenType: 'Bearer',
         user: {
-          email: fresh.email,
-          nombre: fresh.nombre,
-          rol: fresh.rol,
-          usuarioid: fresh.usuarioid,
+          email,
+          nombre,
+          rol,
+          usuarioid,
         },
       },
       'Sesion iniciada con Microsoft',

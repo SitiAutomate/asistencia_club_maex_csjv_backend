@@ -17,17 +17,26 @@ export const requireAuth = async (req, res, next) => {
     const user = await Usuarios.findOne({
       where: { email: payload.email },
     });
-    if (!user) {
-      return sendError(res, 401, 'Usuario no encontrado');
+
+    if (user) {
+      if (!user.confirmado) {
+        return sendError(res, 403, 'Usuario no confirmado');
+      }
+      req.user = {
+        usuarioid: user.usuarioid,
+        email: String(user.email || '').trim(),
+        nombre: user.nombre,
+        rol: user.rol,
+      };
+      return next();
     }
-    if (!user.confirmado) {
-      return sendError(res, 403, 'Usuario no confirmado');
-    }
+
+    // Acceso Microsoft sin registro local: se confía en claims del JWT emitido por el servidor.
     req.user = {
-      usuarioid: user.usuarioid,
-      email: String(user.email || '').trim(),
-      nombre: user.nombre,
-      rol: user.rol,
+      usuarioid: String(payload.usuarioid || '').trim(),
+      email: String(payload.email || '').trim(),
+      nombre: '',
+      rol: String(payload.rol || '').trim(),
     };
     next();
   } catch (e) {
