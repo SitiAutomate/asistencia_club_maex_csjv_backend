@@ -100,7 +100,7 @@ export const listarExtraclasesMesActual = async (req, res) => {
          AND i.año = :anio
          AND LPAD(TRIM(i.Mes), 2, '0') = :mes
          AND TRIM(i.Sede) = :sede
-         AND TRIM(i.Estado) IN ('CONFIRMADO', 'INCAPACITADO', 'RETIRADO')
+         AND TRIM(i.Estado) IN ('ACTIVO','CONFIRMADO', 'INCAPACITADO', 'RETIRADO')
        ORDER BY c.Nombre_del_curso ASC, p.Nombre_Completo ASC`,
       {
         replacements: { anio, mes, sede },
