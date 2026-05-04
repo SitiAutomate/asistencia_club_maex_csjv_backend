@@ -180,6 +180,7 @@ export const crearEvaluacion = async (req, res) => {
       const responsableEmail = emailSesion;
       let responsableNombre =
         (await resolveEntrenadorNombreDesdeCurso({ categoria: categoriaKey, transaction })) || '';
+      const lineaCurso = await resolveLineaDesdeCurso({ categoria: categoriaKey, transaction });
 
       if (!responsableNombre && responsableEmail) {
         const user = await Usuarios.findOne({
@@ -199,6 +200,7 @@ export const crearEvaluacion = async (req, res) => {
         fotoPublicPath: fotoParaPdf,
         comentario,
         responsableNombre,
+        linea: lineaCurso,
         desempenosDestacados: destacados,
         desempenosActitudinales: actitudinales,
       });
@@ -377,6 +379,18 @@ const resolveEntrenadorNombreDesdeCurso = async ({ categoria, transaction }) => 
   });
   const nombre = String(entrenador?.Nombre_Docente || '').trim();
   return nombre ? nombre.toUpperCase() : correoEntrenador.toUpperCase();
+};
+
+const resolveLineaDesdeCurso = async ({ categoria, transaction }) => {
+  const categoriaKey = String(categoria || '').trim();
+  if (!categoriaKey) return 1;
+  const curso = await Cursos.findOne({
+    where: { ID_Curso: categoriaKey },
+    attributes: ['Linea'],
+    transaction,
+  });
+  const linea = Number(curso?.Linea || 1);
+  return Number.isFinite(linea) ? linea : 1;
 };
 
 const mensajeVentanaInformeCerrada = (code) => {

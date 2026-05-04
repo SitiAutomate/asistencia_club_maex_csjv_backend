@@ -21,40 +21,65 @@ const backendRoot = path.resolve(__dirname, '..', '..');
 const PAGE_WIDTH = 595.28;
 const PAGE_HEIGHT = 841.89;
 const MARGIN_X = 34;
-const SUBTITLE_BLUE = '#2C7FB8';
+const PAGE_MARGIN_Y = 100; // ~1cm
 
 const resolveFirstExistingPath = (paths) =>
   paths.find((candidate) => candidate && fs.existsSync(candidate)) || null;
 
-const resolveBackgroundPath = () => {
-  const configuredPath = env.evaluaciones.fondoPath
-    ? path.resolve(process.cwd(), env.evaluaciones.fondoPath)
-    : null;
+const resolveBackgroundPath = (linea) => {
+  const lineaNumber = Number(linea || 1);
+  const configuredPath = env.evaluaciones.fondoPath ? path.resolve(process.cwd(), env.evaluaciones.fondoPath) : null;
+  const preferredFile = lineaNumber === 2 ? 'fondo_2' : 'fondo';
 
   return resolveFirstExistingPath([
-    configuredPath,
+    lineaNumber === 1 ? configuredPath : null,
+    path.resolve(process.cwd(), 'src', 'assets', `${preferredFile}.jpg`),
+    path.resolve(process.cwd(), 'src', 'assets', `${preferredFile}.jpeg`),
+    path.resolve(process.cwd(), 'src', 'assets', `${preferredFile}.png`),
+    path.resolve(backendRoot, 'src', 'assets', `${preferredFile}.jpg`),
+    path.resolve(backendRoot, 'src', 'assets', `${preferredFile}.jpeg`),
+    path.resolve(backendRoot, 'src', 'assets', `${preferredFile}.png`),
+    path.resolve(process.cwd(), 'assets', `${preferredFile}.jpg`),
+    path.resolve(process.cwd(), 'assets', `${preferredFile}.png`),
+    // Fallback universal al fondo original.
     path.resolve(process.cwd(), 'src', 'assets', 'fondo.jpg'),
-    path.resolve(process.cwd(), 'src', 'assets', 'fondo.jpeg'),
-    path.resolve(process.cwd(), 'src', 'assets', 'fondo.png'),
     path.resolve(backendRoot, 'src', 'assets', 'fondo.jpg'),
-    path.resolve(backendRoot, 'src', 'assets', 'fondo.jpeg'),
-    path.resolve(backendRoot, 'src', 'assets', 'fondo.png'),
-    path.resolve(process.cwd(), 'assets', 'fondo.jpg'),
-    path.resolve(process.cwd(), 'assets', 'fondo.png'),
   ]);
 };
 
-const resolveLogoPath = () =>
-  resolveFirstExistingPath([
-    env.evaluaciones.logoPath ? path.resolve(env.evaluaciones.logoPath) : null,
-    env.evaluaciones.logoPath ? path.resolve(process.cwd(), env.evaluaciones.logoPath) : null,
-    path.resolve(process.cwd(), 'src', 'assets', 'logo.webp'),
-    path.resolve(process.cwd(), 'src', 'assets', 'logo.png'),
-    path.resolve(backendRoot, 'src', 'assets', 'logo.webp'),
-    path.resolve(backendRoot, 'src', 'assets', 'logo.png'),
-    path.resolve(process.cwd(), 'assets', 'logo.webp'),
-    path.resolve(process.cwd(), 'assets', 'logo.png'),
-  ]);
+const buildColorTheme = (linea) => {
+  const lineaNumber = Number(linea || 1);
+  if (lineaNumber === 2) {
+    return {
+      primary: '#FF6D00',
+      primaryDark: '#111111',
+      subtitle: '#2B2B2B',
+      accentBorder: '#FF6D00',
+      sectionTitle: '#111111',
+      cardBg: '#F7F7F7',
+      cardBorder: '#E2E2E2',
+      cardTitle: '#1A1A1A',
+      cardText: '#2E2E2E',
+      commentBg: '#F7F7F7',
+      commentBorder: '#E2E2E2',
+      labelText: '#111111',
+    };
+  }
+  return {
+    primary: '#0A5B8F',
+    primaryDark: '#0B3F6B',
+    subtitle: '#2C7FB8',
+    accentBorder: '#0A5B8F',
+    sectionTitle: '#0B4B7A',
+    cardBg: '#EAF0F6',
+    cardBorder: '#D9E2EC',
+    cardTitle: '#102A43',
+    cardText: '#243B53',
+    commentBg: '#F0F4F8',
+    commentBorder: '#D9E2EC',
+    labelText: '#102A43',
+  };
+};
 
 const sanitizeForFileName = (value) =>
   String(value || '')
@@ -110,18 +135,18 @@ const resolvePhotoPath = (fotoPublicPath) => {
   ]);
 };
 
-const drawSection = (doc, title, subtitle, items, yStart, drawBackground) => {
+const drawSection = (doc, title, subtitle, items, yStart, addStyledPage, theme) => {
   let y = yStart;
-  doc.font('Helvetica-Bold').fontSize(20).fillColor('#0B4B7A').text(title, MARGIN_X, y);
+  doc.font('Helvetica-Bold').fontSize(20).fillColor(theme.sectionTitle).text(title, MARGIN_X, y);
   y += 28;
   doc
     .moveTo(MARGIN_X, y)
     .lineTo(PAGE_WIDTH - MARGIN_X, y)
     .lineWidth(1)
-    .strokeColor('#0B4B7A')
+    .strokeColor(theme.primaryDark)
     .stroke();
   y += 10;
-  doc.font('Helvetica-Bold').fontSize(16).fillColor(SUBTITLE_BLUE).text(subtitle, MARGIN_X, y);
+  doc.font('Helvetica-Bold').fontSize(16).fillColor(theme.subtitle).text(subtitle, MARGIN_X, y);
   y += 28;
 
   if (items.length === 0) {
@@ -146,32 +171,24 @@ const drawSection = (doc, title, subtitle, items, yStart, drawBackground) => {
     );
     const textWidth = blockWidth - 32 - badgeWidth - badgePaddingX;
     const titleText = sanitizeForPdfText(item.nombre || 'Rúbrica');
-    const generalDescBaseText =
-      sanitizeForPdfText(item.descripcionGeneral) || 'Sin descripción general de la rúbrica.';
-    const generalDescText = `Descripción: ${generalDescBaseText}`;
     const nivelDescBaseText =
       sanitizeForPdfText(item.descripcion) || 'Sin descripción configurada para este nivel.';
     const nivelDescText = `Calificación otorgada: ${nivelDescBaseText}`;
     const titleHeight = doc.font('Helvetica-Bold').fontSize(13).heightOfString(titleText, {
       width: textWidth,
     });
-    const generalDescHeight = doc.font('Helvetica').fontSize(11.5).heightOfString(generalDescText, {
-      width: textWidth,
-      lineGap: 2,
-    });
     const nivelDescHeight = doc.font('Helvetica').fontSize(11.5).heightOfString(nivelDescText, {
       width: textWidth,
       lineGap: 2,
     });
     const blockHeight = Math.max(
-      96,
-      16 + badgeHeight + 8 + titleHeight + 8 + generalDescHeight + 6 + nivelDescHeight + 16,
+      84,
+      16 + badgeHeight + 8 + titleHeight + 8 + nivelDescHeight + 16,
     );
 
-    if (y + blockHeight > PAGE_HEIGHT - 40) {
-      doc.addPage({ size: 'A4', margin: 0 });
-      drawBackground();
-      y = 44;
+    if (y + blockHeight > PAGE_HEIGHT - PAGE_MARGIN_Y) {
+      addStyledPage();
+      y = PAGE_MARGIN_Y;
     }
 
     const badgeX = MARGIN_X + blockWidth - badgeWidth - 14;
@@ -179,9 +196,9 @@ const drawSection = (doc, title, subtitle, items, yStart, drawBackground) => {
 
     doc
       .roundedRect(MARGIN_X, y, blockWidth, blockHeight, 8)
-      .fillAndStroke('#EAF0F6', '#D9E2EC');
-    doc.roundedRect(MARGIN_X, y, 5, blockHeight, 4).fill('#0A5B8F');
-    doc.roundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 4).fill('#0A5B8F');
+      .fillAndStroke(theme.cardBg, theme.cardBorder);
+    doc.roundedRect(MARGIN_X, y, 5, blockHeight, 4).fill(theme.accentBorder);
+    doc.roundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 4).fill(theme.accentBorder);
     doc
       .font('Helvetica-Bold')
       .fontSize(10)
@@ -195,29 +212,16 @@ const drawSection = (doc, title, subtitle, items, yStart, drawBackground) => {
     doc
       .font('Helvetica-Bold')
       .fontSize(13)
-      .fillColor('#102A43')
+      .fillColor(theme.cardTitle)
       .text(titleText, MARGIN_X + 16, y + 12 + badgeHeight + 8, { width: textWidth });
     doc
       .font('Helvetica')
       .fontSize(11.5)
-      .fillColor('#243B53')
-      .text(generalDescText, MARGIN_X + 16, y + 12 + badgeHeight + 8 + titleHeight + 8, {
+      .fillColor(theme.cardText)
+      .text(nivelDescText, MARGIN_X + 16, y + 12 + badgeHeight + 8 + titleHeight + 8, {
         width: textWidth,
         lineGap: 2,
       });
-    doc
-      .font('Helvetica')
-      .fontSize(11.5)
-      .fillColor('#243B53')
-      .text(
-        nivelDescText,
-        MARGIN_X + 16,
-        y + 12 + badgeHeight + 8 + titleHeight + 8 + generalDescHeight + 6,
-        {
-        width: textWidth,
-        lineGap: 2,
-        },
-      );
     y += blockHeight + 14;
   }
 
@@ -231,6 +235,7 @@ export const generateInformePdf = async ({
   fotoPublicPath,
   comentario,
   responsableNombre,
+  linea,
   desempenosDestacados,
   desempenosActitudinales,
 }) => {
@@ -257,12 +262,12 @@ export const generateInformePdf = async ({
   const uploadsDir = getEvaluacionesInformesDir();
   fs.mkdirSync(uploadsDir, { recursive: true });
 
-  const backgroundPath = resolveBackgroundPath();
+  const theme = buildColorTheme(linea);
+  const backgroundPath = resolveBackgroundPath(linea);
   if (!backgroundPath) {
     throw new Error('No se encontro fondo en rutas esperadas. Configura EVALUACION_FONDO_PATH');
   }
 
-  const logoPath = resolveLogoPath();
   const fileName = `INFORME_${sanitizeForFileName(participanteLimpio)}_${sanitizeForFileName(
     categoriaLimpia,
   )}_${formatDateForFileName(fechaCreacion)}.pdf`;
@@ -274,43 +279,36 @@ export const generateInformePdf = async ({
   const drawBackground = () =>
     doc
       .save()
-      .opacity(0.18)
+      .opacity(0.28)
       .image(backgroundPath, 0, 0, { width: PAGE_WIDTH, height: PAGE_HEIGHT })
       .restore();
+
+  const addStyledPage = () => {
+    doc.addPage({ size: 'A4', margin: 0 });
+    drawBackground();
+  };
   drawBackground();
 
-  if (logoPath) {
-    try {
-      const safeLogoPath = await tryConvertWebpToPng(logoPath);
-      doc.image(safeLogoPath, PAGE_WIDTH / 2 - 95, 42, { fit: [190, 86], align: 'center' });
-    } catch {
-      // Continue without logo if format fails.
-    }
-  }
+  const lineaNum = Number(linea || 1);
+  const tituloInstitucional =
+    lineaNum === 2
+      ? 'Experiential Learning Fundación Maex'
+      : 'Club Deportivo San José de Las Vegas';
 
-  let y = 145;
+  let y = 92;
   doc
     .font('Times-Bold')
     .fontSize(21)
-    .fillColor('#0B3F6B')
-    .text('Club Deportivo San José de Las Vegas y', MARGIN_X, y, {
+    .fillColor(theme.primaryDark)
+    .text(tituloInstitucional, MARGIN_X, y, {
       width: PAGE_WIDTH - MARGIN_X * 2,
       align: 'center',
     });
-  y += 34;
-  doc
-    .font('Times-Bold')
-    .fontSize(21)
-    .fillColor('#0B3F6B')
-    .text('Experiential Learning', MARGIN_X, y, {
-      width: PAGE_WIDTH - MARGIN_X * 2,
-      align: 'center',
-    });
-  y += 40;
+  y += 44;
   doc
     .font('Times-Bold')
     .fontSize(17)
-    .fillColor('#0A5B8F')
+    .fillColor(theme.primary)
     .text('Informe de avance de procesos formativos', MARGIN_X, y, {
       width: PAGE_WIDTH - MARGIN_X * 2,
       align: 'center',
@@ -364,7 +362,7 @@ export const generateInformePdf = async ({
       doc
         .roundedRect(dynamicFrameX, dynamicFrameY, dynamicFrameW, dynamicFrameH, 10)
         .lineWidth(2)
-        .stroke('#0A5B8F');
+        .stroke(theme.accentBorder);
       doc.image(safePhotoPath, dynamicFrameX + 8, dynamicFrameY + 8, {
         width: drawW,
         height: drawH,
@@ -377,9 +375,8 @@ export const generateInformePdf = async ({
     }
   }
 
-  doc.addPage({ size: 'A4', margin: 0 });
-  drawBackground();
-  y = 44;
+  addStyledPage();
+  y = PAGE_MARGIN_Y;
 
   y = drawSection(
     doc,
@@ -387,14 +384,14 @@ export const generateInformePdf = async ({
     'Desempeños físicos, técnicos y/o tácticos',
     destacadosLimpios,
     y,
-    drawBackground,
+    addStyledPage,
+    theme,
   );
 
   y += 12;
-  if (y > PAGE_HEIGHT - 220) {
-    doc.addPage({ size: 'A4', margin: 0 });
-    drawBackground();
-    y = 44;
+  if (y > PAGE_HEIGHT - (PAGE_MARGIN_Y + 180)) {
+    addStyledPage();
+    y = PAGE_MARGIN_Y;
   }
 
   y = drawSection(
@@ -403,7 +400,8 @@ export const generateInformePdf = async ({
     'Evaluación del componente actitudinal',
     actitudinalesLimpios,
     y,
-    drawBackground,
+    addStyledPage,
+    theme,
   );
 
   const commentText = comentarioLimpio;
@@ -413,28 +411,27 @@ export const generateInformePdf = async ({
   });
   const blockHeight = Math.max(84, 22 + commentHeight + 24);
 
-  if (y + blockHeight + 56 > PAGE_HEIGHT - 40) {
-    doc.addPage({ size: 'A4', margin: 0 });
-    drawBackground();
-    y = 44;
+  if (y + blockHeight + 56 > PAGE_HEIGHT - PAGE_MARGIN_Y) {
+    addStyledPage();
+    y = PAGE_MARGIN_Y;
   } else {
     y += 8;
   }
 
   doc
     .roundedRect(MARGIN_X, y, PAGE_WIDTH - MARGIN_X * 2, blockHeight, 8)
-    .fillAndStroke('#F0F4F8', '#D9E2EC');
+    .fillAndStroke(theme.commentBg, theme.commentBorder);
   doc
     .font('Helvetica-Bold')
     .fontSize(13)
-    .fillColor('#102A43')
+    .fillColor(theme.cardTitle)
     .text('Comentarios del entrenador', MARGIN_X + 14, y + 12, {
       width: PAGE_WIDTH - MARGIN_X * 2 - 28,
     });
   doc
     .font('Helvetica')
     .fontSize(11.5)
-    .fillColor('#243B53')
+    .fillColor(theme.cardText)
     .text(commentText, MARGIN_X + 14, y + 34, {
       width: PAGE_WIDTH - MARGIN_X * 2 - 28,
       lineGap: 2,
@@ -444,7 +441,7 @@ export const generateInformePdf = async ({
   doc
     .font('Helvetica-Bold')
     .fontSize(12.5)
-    .fillColor('#102A43')
+    .fillColor(theme.labelText)
     .text('ENTRENADOR:', MARGIN_X, y, { continued: true })
     .font('Helvetica-Bold')
     .fontSize(12.5)

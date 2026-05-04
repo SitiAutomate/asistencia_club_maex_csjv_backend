@@ -45,6 +45,9 @@ Cursos.init(
         Nombre_Corto_Curso:{
             type: DataTypes.STRING,
         },
+        Linea:{
+            type: DataTypes.INTEGER,
+        },
     },
     {
         sequelize,
