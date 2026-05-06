@@ -1,6 +1,8 @@
 import { Op } from 'sequelize';
+import { QueryTypes } from 'sequelize';
 import Cursos from '../database/models/CursosModel.js';
 import Asignaciones from '../database/models/AsignacionModel.js';
+import { sequelize } from '../database/sequelize.js';
 import { sendError, sendSuccess } from '../utils/responseHandler.js';
 
 async function buildWhereCursosDocente(correo, soloMisCursos, scopeAll) {
@@ -71,14 +73,45 @@ export const obtenerCursos = async (req, res) => {
 
     const cursos = await Cursos.findAll({
       where: whereCursos,
-      attributes: ['ID_Curso', 'Nombre_del_curso', 'Nombre_Corto_Curso', 'Actividad'],
+      attributes: [
+        'ID_Curso',
+        'Nombre_del_curso',
+        'Nombre_Corto_Curso',
+        'Linea',
+        'Actividad',
+      ],
       order: [['Nombre_del_curso', 'ASC']],
+    });
+
+    const lineIds = [...new Set(cursos.map((c) => Number(c?.Linea)).filter((id) => Number.isFinite(id)))];
+    let lineMap = new Map();
+    if (lineIds.length > 0) {
+      const lineRows = await sequelize.query(
+        `SELECT IDLinea, Nombre_Linea
+         FROM linea
+         WHERE IDLinea IN (:lineIds)`,
+        {
+          replacements: { lineIds },
+          type: QueryTypes.SELECT,
+        },
+      );
+      lineMap = new Map(
+        lineRows.map((row) => [Number(row.IDLinea), String(row.Nombre_Linea || '').trim()]),
+      );
+    }
+
+    const cursosConLinea = cursos.map((curso) => {
+      const plain = curso.get({ plain: true });
+      return {
+        ...plain,
+        Nombre_Linea: lineMap.get(Number(plain.Linea)) || '',
+      };
     });
 
     return sendSuccess(
       res,
       200,
-      { cursos, tieneApoyoGlobal: Boolean(tieneApoyoGlobal) },
+      { cursos: cursosConLinea, tieneApoyoGlobal: Boolean(tieneApoyoGlobal) },
       'Cursos obtenidos correctamente para el docente',
     );
   } catch (error) {

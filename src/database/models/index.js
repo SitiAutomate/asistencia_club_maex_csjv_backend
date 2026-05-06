@@ -6,6 +6,7 @@ import './InscripcionesModel.js';
 import './PadresModel.js';
 import './ParticipantesModel.js';
 import './UsuariosModel.js';
+import './InformeEmailJobModel.js';
 
 initExampleModel(sequelize);
 

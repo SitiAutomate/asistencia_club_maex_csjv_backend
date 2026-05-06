@@ -20,6 +20,7 @@ function buildListWhere(query) {
   const anio = query.anio ? String(query.anio).trim() : '';
   const categoria = query.categoria ? String(query.categoria).trim() : '';
   const entrenador = query.entrenador ? String(query.entrenador).trim() : '';
+  const linea = query.linea ? String(query.linea).trim() : '';
   const estado = query.estado ? String(query.estado).trim().toLowerCase() : 'todos';
 
   const clauses = ['1=1'];
@@ -56,6 +57,18 @@ function buildListWhere(query) {
     repl.push(categoria);
   }
 
+  if (linea) {
+    clauses.push(
+      `EXISTS (
+         SELECT 1 FROM cursos_2025 c
+         LEFT JOIN linea l ON l.IDLinea = c.Linea
+         WHERE TRIM(c.ID_Curso) = TRIM(e.categoria)
+           AND TRIM(l.Nombre_Linea) = ?
+       )`,
+    );
+    repl.push(linea);
+  }
+
   if (estado === 'enviado') {
     clauses.push('e.enviado = 1');
   } else if (estado === 'no_enviado') {
@@ -73,12 +86,12 @@ function buildListWhere(query) {
     repl.push(entrenador);
   }
 
-  return { whereSql: clauses.join(' AND '), repl, categoria, entrenador, anio };
+  return { whereSql: clauses.join(' AND '), repl, categoria, entrenador, anio, linea };
 }
 
 export const getResumenInformes = async (req, res) => {
   try {
-    const { whereSql, repl, categoria, entrenador, anio } = buildListWhere(req.query);
+    const { whereSql, repl, categoria, entrenador, anio, linea } = buildListWhere(req.query);
     const [rowResumen] = await sequelize.query(
       `SELECT
          COUNT(*) AS totalEvaluaciones,
@@ -119,6 +132,17 @@ export const getResumenInformes = async (req, res) => {
         )`,
       );
       replSinInformeMes.entrenador = entrenador;
+    }
+    if (linea) {
+      extraClauses.push(
+        `AND EXISTS (
+          SELECT 1 FROM cursos_2025 c
+          LEFT JOIN linea l ON l.IDLinea = c.Linea
+          WHERE TRIM(c.ID_Curso) = TRIM(i.IDCurso)
+            AND TRIM(l.Nombre_Linea) = :linea
+        )`,
+      );
+      replSinInformeMes.linea = linea;
     }
 
     const [row] = await sequelize.query(
@@ -177,15 +201,21 @@ export const getCategoriasInformes = async (req, res) => {
            NULLIF(TRIM(c.Nombre_Corto_Curso), ''),
            NULLIF(TRIM(e.nombreCategoria), ''),
            TRIM(e.categoria)
-         ) AS nombre
+         ) AS nombre,
+         NULLIF(TRIM(l.Nombre_Linea), '') AS nombreLinea
        FROM evaluaciones e
        LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(e.categoria)
+       LEFT JOIN linea l ON l.IDLinea = c.Linea
        WHERE e.categoria IS NOT NULL AND TRIM(e.categoria) <> ''
        ORDER BY nombre ASC`,
       { type: QueryTypes.SELECT },
     );
     const categorias = rows
-      .map((r) => ({ id: String(r.id || '').trim(), nombre: String(r.nombre || '').trim() }))
+      .map((r) => ({
+        id: String(r.id || '').trim(),
+        nombre: String(r.nombre || '').trim(),
+        nombreLinea: String(r.nombreLinea || '').trim(),
+      }))
       .filter((r) => r.id);
     return sendSuccess(res, 200, { categorias });
   } catch (error) {
@@ -250,6 +280,7 @@ export const getGraficoCategoriasInformes = async (req, res) => {
   try {
     const categoria = req.query.categoria ? String(req.query.categoria).trim() : '';
     const entrenador = req.query.entrenador ? String(req.query.entrenador).trim() : '';
+    const linea = req.query.linea ? String(req.query.linea).trim() : '';
     const fechaInicio = req.query.fechaInicio ? String(req.query.fechaInicio).trim() : '';
     const fechaFin = req.query.fechaFin ? String(req.query.fechaFin).trim() : '';
     const anioFiltro = req.query.anio ? String(req.query.anio).trim() : '';
@@ -266,6 +297,17 @@ export const getGraficoCategoriasInformes = async (req, res) => {
     if (categoria) {
       inscClauses.push('TRIM(i.IDCurso) = :categoria');
       repl.categoria = categoria;
+    }
+    if (linea) {
+      inscClauses.push(
+        `EXISTS (
+           SELECT 1 FROM cursos_2025 cx
+           LEFT JOIN linea lx ON lx.IDLinea = cx.Linea
+           WHERE TRIM(cx.ID_Curso) = TRIM(i.IDCurso)
+             AND TRIM(lx.Nombre_Linea) = :linea
+         )`,
+      );
+      repl.linea = linea;
     }
 
     const evalClauses = [
@@ -327,13 +369,14 @@ export const getGraficoCategoriasInformes = async (req, res) => {
                AND e.enviado = 1
            ) THEN 1 ELSE 0 END
          ) AS enviados,
-         SUM(
-           CASE WHEN EXISTS (
-             SELECT 1
-             FROM evaluaciones e
-             WHERE ${evalExisteSql}
-           ) THEN 0 ELSE 1 END
-         ) AS noEnviados,
+        SUM(
+          CASE WHEN EXISTS (
+            SELECT 1
+            FROM evaluaciones e
+            WHERE ${evalExisteSql}
+              AND e.enviado = 1
+          ) THEN 0 ELSE 1 END
+        ) AS noEnviados,
          COUNT(*) AS total
        FROM inscripciones_1 i
        LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(i.IDCurso)

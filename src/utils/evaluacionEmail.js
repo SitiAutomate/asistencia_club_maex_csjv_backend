@@ -28,6 +28,9 @@ const tryConvertWebpToPng = async (sourcePath) => {
 /** PNG/JPEG primero (mejor soporte en clientes de correo); WebP como último recurso. */
 export const resolveLogoPathForEmail = () =>
   resolveFirstExistingPath([
+    path.resolve(backendRoot, 'src', 'assets', 'logo_club.png'),
+    path.resolve(process.cwd(), 'src', 'assets', 'logo_club.png'),
+    path.resolve(process.cwd(), 'assets', 'logo_club.png'),
     env.evaluaciones.logoPath ? path.resolve(env.evaluaciones.logoPath) : null,
     env.evaluaciones.logoPath ? path.resolve(process.cwd(), env.evaluaciones.logoPath) : null,
     path.resolve(process.cwd(), 'src', 'assets', 'logo.png'),
@@ -46,6 +49,9 @@ export const resolveLogoPathForEmail = () =>
 /** Logo Maex (opcional): coloca logo-maex.png o maex.png en src/assets o assets/. */
 export const resolveMaexLogoPathForEmail = () =>
   resolveFirstExistingPath([
+    path.resolve(backendRoot, 'src', 'assets', 'logo_fundacion_maex.png'),
+    path.resolve(process.cwd(), 'src', 'assets', 'logo_fundacion_maex.png'),
+    path.resolve(process.cwd(), 'assets', 'logo_fundacion_maex.png'),
     env.evaluaciones.logoMaexPath ? path.resolve(env.evaluaciones.logoMaexPath) : null,
     env.evaluaciones.logoMaexPath ? path.resolve(process.cwd(), env.evaluaciones.logoMaexPath) : null,
     path.resolve(backendRoot, 'src', 'assets', 'logo-maex.png'),
@@ -69,9 +75,36 @@ const escapeHtml = (value) =>
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
-export const buildInformeCorreoCuerpo = ({ participante, nombreCategoria }) => {
+const resolveLineaBranding = (linea) => {
+  const n = Number(linea || 1);
+  if (n === 2) {
+    return {
+      linea: 2,
+      title: 'Experiential Learning Fundación Maex',
+      signature: 'Fundación Maex',
+      contactEmail: 'liderexperientiallearning@sanjosevegas.edu.co',
+      processText:
+        'Este informe hace parte del proceso de formación integral que promovemos en Fundación Maex, donde buscamos potenciar habilidades técnicas y/o culturales, además del desarrollo personal de cada uno de nuestros participantes.',
+      includeClubLogo: false,
+      includeMaexLogo: true,
+    };
+  }
+  return {
+    linea: 1,
+    title: 'Club Deportivo San José de Las Vegas',
+    signature: 'Club Deportivo San José de Las Vegas',
+    contactEmail: 'clubdeportivo@sanjosevegas.edu.co',
+    processText:
+      'Este informe hace parte del proceso de formación integral que promovemos en el Club Deportivo San José de Las Vegas, donde buscamos potenciar no solo las habilidades deportivas, sino también el desarrollo personal de cada uno de nuestros participantes.',
+    includeClubLogo: true,
+    includeMaexLogo: false,
+  };
+};
+
+export const buildInformeCorreoCuerpo = ({ participante, nombreCategoria, linea }) => {
   const p = participante || 'Participante';
   const c = nombreCategoria || 'Categoría';
+  const branding = resolveLineaBranding(linea);
   return `Queridas familias,
 
 Reciban un cordial saludo.
@@ -80,13 +113,13 @@ Adjunto a este correo encontrarás el informe de desempeño correspondiente a:
 
 Participante: ${p}
 Categoría: ${c}
-Este informe hace parte del proceso de formación integral que promovemos en el Club Deportivo San José de Las Vegas y Maex, donde buscamos potenciar no solo las habilidades deportivas, sino también el desarrollo personal de cada uno de nuestros participantes
+${branding.processText}
 
-Si tienes alguna inquietud o comentario, envíanos un correo a clubdeportivo@sanjosevegas.edu.co Estaremos encantados de acompañarte en este camino.
+Si tienes alguna inquietud o comentario, envíanos un correo a ${branding.contactEmail}. Estaremos encantados de acompañarte en este camino.
 
 ¡Gracias por la confianza y el compromiso con el proceso!
 
-Club Deportivo San José de Las Vegas Maex
+${branding.signature}
 
 Este correo es informativo, por favor no responderlo`;
 };
@@ -94,11 +127,14 @@ Este correo es informativo, por favor no responderlo`;
 export const buildInformeCorreoHtml = ({
   participante,
   nombreCategoria,
+  linea,
   includeClubLogo,
   includeMaexLogo,
 }) => {
   const p = escapeHtml(participante || 'Participante');
   const c = escapeHtml(nombreCategoria || 'Categoría');
+  const branding = resolveLineaBranding(linea);
+  const contactEmail = escapeHtml(branding.contactEmail);
 
   const bgPage = '#f4f4f4';
   const card = '#ffffff';
@@ -148,7 +184,7 @@ export const buildInformeCorreoHtml = ({
 <tr>
 <td style="padding:28px 32px 8px;font-family:${ff};" align="center">
 ${logosRow}
-<p style="margin:18px 0 0;font-size:17px;font-weight:700;color:${titleBlue};line-height:1.35;">Club Deportivo y Maex</p>
+<p style="margin:18px 0 0;font-size:17px;font-weight:700;color:${titleBlue};line-height:1.35;">${escapeHtml(branding.title)}</p>
 </td>
 </tr>
 <tr>
@@ -170,7 +206,7 @@ ${row('Categoría:', c)}
 </tr>
 <tr>
 <td style="padding:0 32px 20px;font-family:${ff};font-size:15px;line-height:1.65;color:${muted};">
-<p style="margin:0;">Este informe hace parte del proceso de formación integral que promovemos en el Club Deportivo San José de Las Vegas y Maex, donde buscamos potenciar no solo las habilidades deportivas, sino también el desarrollo personal de cada uno de nuestros participantes.</p>
+<p style="margin:0;">${escapeHtml(branding.processText)}</p>
 </td>
 </tr>
 <tr>
@@ -180,7 +216,7 @@ ${row('Categoría:', c)}
 </tr>
 <tr>
 <td style="padding:0 32px 22px;font-family:${ff};font-size:15px;line-height:1.6;color:${muted};">
-Si tienen alguna inquietud o comentario, contáctenos en <a href="mailto:clubdeportivo@sanjosevegas.edu.co" style="color:${linkBlue};text-decoration:underline;">clubdeportivo@sanjosevegas.edu.co</a>. Estaremos encantados de acompañarlos en este camino.
+Si tienen alguna inquietud o comentario, contáctenos en <a href="mailto:${contactEmail}" style="color:${linkBlue};text-decoration:underline;">${contactEmail}</a>. Estaremos encantados de acompañarlos en este camino.
 </td>
 </tr>
 <tr>
@@ -190,7 +226,7 @@ Si tienen alguna inquietud o comentario, contáctenos en <a href="mailto:clubdep
 </tr>
 <tr>
 <td style="padding:16px 32px;background:${footerBg};border-radius:0 0 11px 11px;font-family:${ff};font-size:12px;line-height:1.5;color:${muted};text-align:center;">
-Club Deportivo y Maex · San José de Las Vegas
+${escapeHtml(branding.signature)}
 </td>
 </tr>
 </table>
@@ -251,7 +287,7 @@ async function getCachedInlineLogoPayload() {
 let sharedTransporter = null;
 
 function getInformeMailTransporter() {
-  const { host, port, user, pass, secure } = env.email;
+  const { host, port, user, pass, secure, poolMaxConnections, poolMaxMessages } = env.email;
   if (!host) return null;
   if (!sharedTransporter) {
     sharedTransporter = nodemailer.createTransport({
@@ -260,8 +296,11 @@ function getInformeMailTransporter() {
       secure,
       auth: user && pass != null && pass !== '' ? { user, pass } : undefined,
       pool: true,
-      maxConnections: 2,
-      maxMessages: 50,
+      maxConnections: poolMaxConnections,
+      maxMessages: poolMaxMessages,
+      connectionTimeout: 15000,
+      greetingTimeout: 10000,
+      socketTimeout: 30000,
     });
   }
   return sharedTransporter;
@@ -271,6 +310,7 @@ export const sendEvaluacionInformeEmail = async ({
   to,
   participante,
   nombreCategoria,
+  linea,
   attachmentPath,
 }) => {
   const { user } = env.email;
@@ -280,18 +320,25 @@ export const sendEvaluacionInformeEmail = async ({
     throw new Error('Transporte de correo no configurado');
   }
 
-  const text = buildInformeCorreoCuerpo({ participante, nombreCategoria });
+  const branding = resolveLineaBranding(linea);
+  const text = buildInformeCorreoCuerpo({ participante, nombreCategoria, linea: branding.linea });
   const { attachments: logoAttachments, includeClubLogo, includeMaexLogo } =
     await getCachedInlineLogoPayload();
   const html = buildInformeCorreoHtml({
     participante,
     nombreCategoria,
-    includeClubLogo,
-    includeMaexLogo,
+    linea: branding.linea,
+    includeClubLogo: includeClubLogo && branding.includeClubLogo,
+    includeMaexLogo: includeMaexLogo && branding.includeMaexLogo,
   });
   const filename = path.basename(attachmentPath);
 
-  const attachments = [{ path: attachmentPath, filename }, ...logoAttachments];
+  const logoAttachmentsFiltered = logoAttachments.filter((attachment) => {
+    if (attachment?.cid === LOGO_CLUB_CID) return branding.includeClubLogo;
+    if (attachment?.cid === LOGO_MAEX_CID) return branding.includeMaexLogo;
+    return true;
+  });
+  const attachments = [{ path: attachmentPath, filename }, ...logoAttachmentsFiltered];
 
   await transporter.sendMail({
     from: user,

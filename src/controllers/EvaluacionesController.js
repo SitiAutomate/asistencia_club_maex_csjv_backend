@@ -21,13 +21,13 @@ import { getNivelTextoByValor, normalizeRubricaTipo } from '../utils/evaluacionR
 import {
   isInformeFileReadable,
   resolveInformeAbsolutePath,
-  sendEvaluacionInformeEmail,
 } from '../utils/evaluacionEmail.js';
 import {
   evaluateInformeEnvioWindow,
   fechaHoyColombia,
   informeYaEnviadoHoyColombia,
 } from '../utils/informeEnvioWindow.js';
+import { enqueueInformeEmailJob } from '../utils/informeEmailQueue.js';
 
 export const crearEvaluacion = async (req, res) => {
   try {
@@ -482,6 +482,7 @@ export const enviarEvaluacion = async (req, res) => {
     const participante = evaluacion.participante || 'Participante';
     const nombreCategoria =
       evaluacion.nombreCategoria || evaluacion.categoria || 'Categoria';
+    const lineaCurso = await resolveLineaDesdeCurso({ categoria: evaluacion.categoria });
 
     const destinatarios = new Set([normalizarCorreo(destinatario)]);
     if (env.evaluacionEmail.incluirCorreosFamilia) {
@@ -494,31 +495,35 @@ export const enviarEvaluacion = async (req, res) => {
       return sendError(res, 400, 'No hay correos válidos para enviar el informe');
     }
 
-    await sendEvaluacionInformeEmail({
-      to: destinatariosFinales,
+    const enqueueResult = await enqueueInformeEmailJob({
+      evaluacionId: id,
+      destinatarios: destinatariosFinales,
       participante,
       nombreCategoria,
+      linea: lineaCurso,
       attachmentPath: informeAbs,
     });
 
-    const ahora = new Date();
-    await evaluacion.update({
-      enviado: true,
-      fechaEnvio: ahora,
-      fecha_modificacion: ahora,
-    });
-    await evaluacion.reload();
+    if (!enqueueResult.queued) {
+      return sendError(
+        res,
+        409,
+        'Ya existe un envío de informe en curso para esta evaluación. Espera unos segundos e intenta de nuevo.',
+      );
+    }
 
     return sendSuccess(
       res,
       200,
       {
-        evaluacion: evaluacion.get({ plain: true }),
+        evaluacionId: id,
+        jobId: enqueueResult.job.id,
+        estadoEnvio: 'pendiente',
         destinatario,
         destinatarios: destinatariosFinales,
         incluyoCorreosFamilia: env.evaluacionEmail.incluirCorreosFamilia,
       },
-      'Informe enviado por correo y evaluacion marcada como enviada',
+      'Solicitud de envío registrada. El correo se enviará en segundo plano.',
     );
   } catch (error) {
     const reason = buildEnvioCorreoErrorMessage(error);

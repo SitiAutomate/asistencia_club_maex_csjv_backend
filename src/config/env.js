@@ -48,11 +48,16 @@ export const env = {
     from: process.env.EMAIL_FROM || process.env.EMAIL_USER || '',
     secure:
       process.env.EMAIL_SECURE === 'true' || Number(process.env.EMAIL_PORT) === 465,
+    poolMaxConnections: Number(process.env.EMAIL_POOL_MAX_CONNECTIONS) || 5,
+    poolMaxMessages: Number(process.env.EMAIL_POOL_MAX_MESSAGES) || 100,
   },
   evaluacionEmail: {
     incluirCorreosFamilia:
       String(process.env.EVALUACION_EMAIL_INCLUIR_CORREOS_FAMILIA || 'false').toLowerCase() ===
       'true',
+    queueConcurrency: Number(process.env.EVALUACION_EMAIL_QUEUE_CONCURRENCY) || 3,
+    queuePollMs: Number(process.env.EVALUACION_EMAIL_QUEUE_POLL_MS) || 1200,
+    queueIdlePollMs: Number(process.env.EVALUACION_EMAIL_QUEUE_IDLE_POLL_MS) || 6000,
   },
   rutaSegura: {
     baseUrl: process.env.RUTA_SEGURA || '',
