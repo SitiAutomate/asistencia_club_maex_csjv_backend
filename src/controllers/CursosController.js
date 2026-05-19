@@ -5,6 +5,34 @@ import Asignaciones from '../database/models/AsignacionModel.js';
 import { sequelize } from '../database/sequelize.js';
 import { sendError, sendSuccess } from '../utils/responseHandler.js';
 
+async function getLiderMetadata(correo) {
+  if (!correo) {
+    return { esLider: false, actividadesLider: [] };
+  }
+
+  const asignacionesLider = await Asignaciones.findAll({
+    where: {
+      docente: correo,
+      estado: { [Op.eq]: 'ACTIVO' },
+      lider: { [Op.eq]: 'Si' },
+    },
+    attributes: ['actividad'],
+  });
+
+  const actividadesLider = [
+    ...new Set(
+      asignacionesLider
+        .map((asignacion) => asignacion.actividad)
+        .filter((actividad) => actividad !== null && actividad !== undefined),
+    ),
+  ];
+
+  return {
+    esLider: asignacionesLider.length > 0,
+    actividadesLider,
+  };
+}
+
 async function buildWhereCursosDocente(correo, soloMisCursos, scopeAll) {
   const whereCursos = {
     Estado_del_curso: { [Op.eq]: 'ACTIVO' },
@@ -16,7 +44,36 @@ async function buildWhereCursosDocente(correo, soloMisCursos, scopeAll) {
   }
 
   if (soloMisCursos) {
-    whereCursos.Docente = { [Op.eq]: correo };
+    const asignacionesLider = await Asignaciones.findAll({
+      where: {
+        docente: correo,
+        estado: { [Op.eq]: 'ACTIVO' },
+        lider: { [Op.eq]: 'Si' },
+      },
+      attributes: ['actividad'],
+    });
+
+    if (asignacionesLider.length > 0) {
+      const actividades = [
+        ...new Set(
+          asignacionesLider
+            .map((asignacion) => asignacion.actividad)
+            .filter((actividad) => actividad !== null && actividad !== undefined),
+        ),
+      ];
+
+      if (actividades.length > 0) {
+        whereCursos[Op.or] = [
+          { Docente: { [Op.eq]: correo } },
+          { Actividad: { [Op.in]: actividades } },
+        ];
+      } else {
+        whereCursos.Docente = { [Op.eq]: correo };
+      }
+    } else {
+      whereCursos.Docente = { [Op.eq]: correo };
+    }
+
     return { whereCursos, tieneApoyoGlobal: false };
   }
 
@@ -67,8 +124,15 @@ export const obtenerCursos = async (req, res) => {
       soloMisCursos,
       scopeAll,
     );
+    const liderMeta = scopeAll ? { esLider: false, actividadesLider: [] } : await getLiderMetadata(correo);
+
     if (sinAsignaciones) {
-      return sendSuccess(res, 200, { cursos: [] }, 'El docente no tiene asignaciones');
+      return sendSuccess(
+        res,
+        200,
+        { cursos: [], tieneApoyoGlobal: false, ...liderMeta },
+        'El docente no tiene asignaciones',
+      );
     }
 
     const cursos = await Cursos.findAll({
@@ -111,7 +175,7 @@ export const obtenerCursos = async (req, res) => {
     return sendSuccess(
       res,
       200,
-      { cursos: cursosConLinea, tieneApoyoGlobal: Boolean(tieneApoyoGlobal) },
+      { cursos: cursosConLinea, tieneApoyoGlobal: Boolean(tieneApoyoGlobal), ...liderMeta },
       'Cursos obtenidos correctamente para el docente',
     );
   } catch (error) {

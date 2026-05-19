@@ -5,9 +5,73 @@ import Asignaciones from '../database/models/AsignacionModel.js';
 import Cursos from '../database/models/CursosModel.js';
 import { ROLES } from '../constants/roles.js';
 
+function isComunFlag(value) {
+    return value === 1 || value === true || value === '1' || value === 'true';
+}
+
+async function docenteEsLider(correo) {
+    const asignacion = await Asignaciones.findOne({
+        where: {
+            docente: correo,
+            estado: { [Op.eq]: 'ACTIVO' },
+            lider: { [Op.eq]: 'Si' },
+        },
+    });
+    return Boolean(asignacion);
+}
+
+async function validarPayloadRubrica(req, body) {
+    const comun = isComunFlag(body.comun);
+    const esAdmin = req.user.rol === ROLES.ADMINISTRADOR;
+
+    if (comun) {
+        const puedeComun = esAdmin || (await docenteEsLider(req.user.email));
+        if (!puedeComun) {
+            return { error: 'No autorizado para crear o editar rúbricas comunes' };
+        }
+
+        const actividad = String(body.actividad ?? '').trim();
+        if (!actividad) {
+            return { error: 'La actividad es obligatoria para una rúbrica común' };
+        }
+
+        const categoria = String(body.categoria ?? '').trim();
+        return {
+            payload: {
+                ...body,
+                comun: true,
+                actividad,
+                categoria: categoria || null,
+                nombreCategoria: categoria
+                    ? body.nombreCategoria
+                    : body.nombreCategoria || 'Todas las categorías',
+            },
+        };
+    }
+
+    const categoria = String(body.categoria ?? '').trim();
+    if (!categoria) {
+        return { error: 'La categoría es obligatoria' };
+    }
+
+    return {
+        payload: {
+            ...body,
+            comun: false,
+            categoria,
+        },
+    };
+}
+
 export const crearRubrica = async (req, res) => {
     try {
-        const { nombre, tipo, descripcion, categoria, nombreCategoria, alto, medio, bajo, actividad, comun, estado } = req.body;
+        const validacion = await validarPayloadRubrica(req, req.body);
+        if (validacion.error) {
+            return sendError(res, 400, validacion.error);
+        }
+
+        const { nombre, tipo, descripcion, categoria, nombreCategoria, alto, medio, bajo, actividad, comun, estado } =
+            validacion.payload;
         const responsable = req.user.email;
         const rubrica = await Rubricas.create({
             nombre,
@@ -36,8 +100,14 @@ export const editarRubrica = async (req, res) => {
         if (!rubricaFind) {
             return sendError(res, 404, 'Rubrica no encontrada');
         }
+        const validacion = await validarPayloadRubrica(req, req.body);
+        if (validacion.error) {
+            return sendError(res, 400, validacion.error);
+        }
+
         const fechaModificacion = new Date();
-        const { nombre, tipo, descripcion, categoria, nombreCategoria, alto, medio, bajo, actividad, comun, estado } = req.body;
+        const { nombre, tipo, descripcion, categoria, nombreCategoria, alto, medio, bajo, actividad, comun, estado } =
+            validacion.payload;
         const responsable = req.user.email;
         await Rubricas.update({
             nombre,
