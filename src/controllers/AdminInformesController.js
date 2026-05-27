@@ -19,10 +19,11 @@ function getPeriodoDefault(mesNum) {
 }
 
 function getPeriodoMonths(periodo, mesActual) {
-  if (periodo === 'ene_jul') return { mesInicio: 1, mesFin: 7 };
-  if (periodo === 'ago_dic') return { mesInicio: 8, mesFin: 12 };
+  // Ventanas operativas: aunque el filtro se llama semestral, el cálculo se hace por trimestres de corte.
+  if (periodo === 'ene_jul') return { mesInicio: 5, mesFin: 7 };
+  if (periodo === 'ago_dic') return { mesInicio: 10, mesFin: 12 };
   const def = getPeriodoDefault(mesActual);
-  return def === 'ene_jul' ? { mesInicio: 1, mesFin: 7 } : { mesInicio: 8, mesFin: 12 };
+  return def === 'ene_jul' ? { mesInicio: 5, mesFin: 7 } : { mesInicio: 10, mesFin: 12 };
 }
 
 function buildListWhere(query) {
@@ -164,7 +165,7 @@ export const getResumenInformes = async (req, res) => {
     }
 
     const [row] = await sequelize.query(
-      `SELECT COUNT(*) AS c
+      `SELECT COUNT(DISTINCT CONCAT(TRIM(i.validador_participante), '__', TRIM(i.IDCurso))) AS c
        FROM inscripciones_1 i
        WHERE i.Estado = 'CONFIRMADO' AND i.Tipo = 1 AND i.Mes BETWEEN :mesInicio AND :mesFin AND i.año = :anio
        ${extraClauses.join('\n')}
