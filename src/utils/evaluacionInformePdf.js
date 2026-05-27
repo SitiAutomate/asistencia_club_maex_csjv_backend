@@ -12,6 +12,7 @@ import {
   getUploadsRootDir,
   resolveUploadsAbsoluteFromPublicPath,
 } from './storagePaths.js';
+import { normalizeMultilineTextForPdf } from './textNormalize.js';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -89,24 +90,9 @@ const sanitizeForFileName = (value) =>
     .replace(/^_+|_+$/g, '')
     .slice(0, 80) || 'SIN_DATO';
 
-/**
- * Limpia artefactos de codificación (ej: "Ð") y controles no imprimibles
- * para que no aparezcan símbolos raros en el PDF final.
- */
+/** Limpia texto de una línea para PDF (sin saltos de línea). */
 const sanitizeForPdfText = (value) =>
-  String(value ?? '')
-    .replace(/\u00D0/g, '')
-    // Normaliza saltos de línea Windows/Mac para evitar artefactos visuales en PDF (ej. "D").
-    .replace(/\r\n/g, '\n')
-    .replace(/\r/g, '\n')
-    .replace(/[^\S\r\n]+/g, ' ')
-    .replace(/./g, (ch) => {
-      const code = ch.charCodeAt(0);
-      const isForbiddenControl =
-        code === 0x7f || (code <= 0x1f && code !== 0x09 && code !== 0x0a && code !== 0x0d);
-      return isForbiddenControl ? '' : ch;
-    })
-    .trim();
+  normalizeMultilineTextForPdf(value).replace(/\n/g, ' ').replace(/[^\S]+/g, ' ').trim();
 
 const formatDateForFileName = (dateInput) => {
   const date = dateInput ? new Date(dateInput) : new Date();
@@ -244,7 +230,8 @@ export const generateInformePdf = async ({
 }) => {
   const participanteLimpio = sanitizeForPdfText(participante) || 'N/A';
   const categoriaLimpia = sanitizeForPdfText(categoriaNombre) || 'N/A';
-  const comentarioLimpio = sanitizeForPdfText(comentario) || 'Sin comentarios del entrenador.';
+  const comentarioLimpio =
+    normalizeMultilineTextForPdf(comentario) || 'Sin comentarios del entrenador.';
   const responsableLimpio = sanitizeForPdfText(responsableNombre) || 'No definido';
 
   const destacadosLimpios = (desempenosDestacados || []).map((item) => ({
@@ -407,11 +394,21 @@ export const generateInformePdf = async ({
     theme,
   );
 
-  const commentText = comentarioLimpio;
-  const commentHeight = doc.font('Helvetica').fontSize(11.5).heightOfString(commentText, {
-    width: PAGE_WIDTH - MARGIN_X * 2 - 28,
-    lineGap: 2,
-  });
+  const commentWidth = PAGE_WIDTH - MARGIN_X * 2 - 28;
+  const commentLines =
+    comentarioLimpio === 'Sin comentarios del entrenador.'
+      ? [comentarioLimpio]
+      : comentarioLimpio.split('\n');
+  const commentLineGap = 2;
+  const commentLineHeight =
+    doc.font('Helvetica').fontSize(11.5).currentLineHeight() + commentLineGap;
+  const commentHeight = commentLines.reduce((sum, line) => {
+    const h = doc.font('Helvetica').fontSize(11.5).heightOfString(line || ' ', {
+      width: commentWidth,
+      lineGap: commentLineGap,
+    });
+    return sum + Math.max(commentLineHeight, h);
+  }, 0);
   const blockHeight = Math.max(84, 22 + commentHeight + 24);
 
   if (y + blockHeight + 56 > PAGE_HEIGHT - PAGE_MARGIN_Y) {
@@ -431,14 +428,16 @@ export const generateInformePdf = async ({
     .text('Comentarios del entrenador', MARGIN_X + 14, y + 12, {
       width: PAGE_WIDTH - MARGIN_X * 2 - 28,
     });
-  doc
-    .font('Helvetica')
-    .fontSize(11.5)
-    .fillColor(theme.cardText)
-    .text(commentText, MARGIN_X + 14, y + 34, {
-      width: PAGE_WIDTH - MARGIN_X * 2 - 28,
-      lineGap: 2,
+  let commentY = y + 34;
+  doc.font('Helvetica').fontSize(11.5).fillColor(theme.cardText);
+  for (const line of commentLines) {
+    doc.text(line || ' ', MARGIN_X + 14, commentY, {
+      width: commentWidth,
+      lineGap: commentLineGap,
+      lineBreak: false,
     });
+    commentY += commentLineHeight;
+  }
   y += blockHeight + 20;
 
   doc

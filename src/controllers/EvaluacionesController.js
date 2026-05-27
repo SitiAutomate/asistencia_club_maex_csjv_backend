@@ -28,6 +28,7 @@ import {
   informeYaEnviadoHoyColombia,
 } from '../utils/informeEnvioWindow.js';
 import { enqueueInformeEmailJob } from '../utils/informeEmailQueue.js';
+import { normalizeMultilineText } from '../utils/textNormalize.js';
 
 export const crearEvaluacion = async (req, res) => {
   try {
@@ -86,6 +87,7 @@ export const crearEvaluacion = async (req, res) => {
       enviado,
       curso_recomendado,
     } = req.body;
+    const comentarioLimpio = normalizeMultilineText(comentario);
     const fechaCreacion = new Date();
     const identKey = identificacion != null ? String(identificacion).trim() : '';
     const categoriaKey = categoria != null ? String(categoria).trim() : '';
@@ -121,7 +123,7 @@ export const crearEvaluacion = async (req, res) => {
             categoria: categoriaKey,
             fecha_creacion: fechaCreacion,
             nombreCategoria,
-            comentario,
+            comentario: comentarioLimpio,
             fechaEnvio,
             enviado,
             curso_recomendado,
@@ -138,7 +140,7 @@ export const crearEvaluacion = async (req, res) => {
             categoria: categoriaKey,
             fecha_creacion: fechaCreacion,
             nombreCategoria,
-            comentario,
+            comentario: comentarioLimpio,
             fechaEnvio,
             enviado,
             curso_recomendado,
@@ -198,7 +200,7 @@ export const crearEvaluacion = async (req, res) => {
         categoriaNombre: nombreCategoria,
         fechaCreacion,
         fotoPublicPath: fotoParaPdf,
-        comentario,
+        comentario: comentarioLimpio,
         responsableNombre,
         linea: lineaCurso,
         desempenosDestacados: destacados,
