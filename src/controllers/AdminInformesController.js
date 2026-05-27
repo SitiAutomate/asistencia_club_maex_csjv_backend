@@ -26,6 +26,30 @@ function getPeriodoMonths(periodo, mesActual) {
   return def === 'ene_jul' ? { mesInicio: 5, mesFin: 7 } : { mesInicio: 10, mesFin: 12 };
 }
 
+function latestInscripcionesSubquery() {
+  return `(
+    SELECT li.validador_participante, li.IDCurso, li.Tipo, li.año, li.Mes, li.Estado
+    FROM inscripciones_1 li
+    INNER JOIN (
+      SELECT
+        TRIM(validador_participante) AS validador_participante,
+        TRIM(IDCurso) AS IDCurso,
+        MAX(CAST(Mes AS UNSIGNED)) AS max_mes
+      FROM inscripciones_1
+      WHERE Tipo = 1
+        AND año = :anio
+        AND CAST(Mes AS UNSIGNED) BETWEEN :mesInicio AND :mesFin
+      GROUP BY TRIM(validador_participante), TRIM(IDCurso)
+    ) lm
+      ON TRIM(li.validador_participante) = lm.validador_participante
+      AND TRIM(li.IDCurso) = lm.IDCurso
+      AND CAST(li.Mes AS UNSIGNED) = lm.max_mes
+    WHERE li.Tipo = 1
+      AND li.año = :anio
+      AND CAST(li.Mes AS UNSIGNED) BETWEEN :mesInicio AND :mesFin
+  )`;
+}
+
 function buildListWhere(query) {
   const fechaInicio = query.fechaInicio ? String(query.fechaInicio).trim() : '';
   const fechaFin = query.fechaFin ? String(query.fechaFin).trim() : '';
@@ -146,7 +170,7 @@ export const getResumenInformes = async (req, res) => {
           WHERE TRIM(ev.identificacion) = TRIM(i.validador_participante)
             AND TRIM(ev.categoria) = TRIM(i.IDCurso)
             AND YEAR(ev.fecha_creacion) = :anio
-            AND MONTH(ev.fecha_creacion) = :mesNum
+            AND MONTH(ev.fecha_creacion) BETWEEN :mesInicio AND :mesFin
             AND TRIM(d.responsable) = :entrenador
         )`,
       );
@@ -166,8 +190,8 @@ export const getResumenInformes = async (req, res) => {
 
     const [row] = await sequelize.query(
       `SELECT COUNT(DISTINCT CONCAT(TRIM(i.validador_participante), '__', TRIM(i.IDCurso))) AS c
-       FROM inscripciones_1 i
-       WHERE i.Estado = 'CONFIRMADO' AND i.Tipo = 1 AND i.Mes BETWEEN :mesInicio AND :mesFin AND i.año = :anio
+       FROM ${latestInscripcionesSubquery()} i
+       WHERE TRIM(i.Estado) IN ('CONFIRMADO', 'ACTIVO')
        ${extraClauses.join('\n')}
        AND NOT EXISTS (
          SELECT 1 FROM evaluaciones e
@@ -311,14 +335,9 @@ export const getGraficoCategoriasInformes = async (req, res) => {
     const { mesInicio, mesFin } = getPeriodoMonths(periodoNormalizado, mesActualBogota);
 
     const repl = { anio, mesInicio, mesFin };
-    const inscClauses = [
-      'i.Tipo = 1',
-      "i.Estado IN ('CONFIRMADO', 'INCAPACITADO', 'RETIRADO')",
-      'i.año = :anio',
-      'i.Mes BETWEEN :mesInicio AND :mesFin',
-    ];
+    const inscClauses = ["TRIM(iu.Estado) IN ('CONFIRMADO', 'ACTIVO')"];
     if (categoria) {
-      inscClauses.push('TRIM(i.IDCurso) = :categoria');
+      inscClauses.push('TRIM(iu.IDCurso) = :categoria');
       repl.categoria = categoria;
     }
     if (linea) {
@@ -326,7 +345,7 @@ export const getGraficoCategoriasInformes = async (req, res) => {
         `EXISTS (
            SELECT 1 FROM cursos_2025 cx
            LEFT JOIN linea lx ON lx.IDLinea = cx.Linea
-           WHERE TRIM(cx.ID_Curso) = TRIM(i.IDCurso)
+           WHERE TRIM(cx.ID_Curso) = TRIM(iu.IDCurso)
              AND TRIM(lx.Nombre_Linea) = :linea
          )`,
       );
@@ -334,8 +353,8 @@ export const getGraficoCategoriasInformes = async (req, res) => {
     }
 
     const evalClauses = [
-      'TRIM(e.identificacion) = TRIM(i.validador_participante)',
-      'TRIM(e.categoria) = TRIM(i.IDCurso)',
+      'TRIM(e.identificacion) = TRIM(iu.validador_participante)',
+      'TRIM(e.categoria) = TRIM(iu.IDCurso)',
       "e.informe IS NOT NULL AND TRIM(e.informe) <> ''",
       'YEAR(e.fecha_creacion) = :anio',
     ];
@@ -381,7 +400,7 @@ export const getGraficoCategoriasInformes = async (req, res) => {
          COALESCE(
            NULLIF(TRIM(c.Nombre_Corto_Curso), ''),
            NULLIF(TRIM(c.Nombre_del_curso), ''),
-           TRIM(i.IDCurso),
+           TRIM(iu.IDCurso),
            'Sin categoría'
          ) AS categoria,
          SUM(
@@ -401,13 +420,13 @@ export const getGraficoCategoriasInformes = async (req, res) => {
           ) THEN 0 ELSE 1 END
         ) AS noEnviados,
          COUNT(*) AS total
-       FROM inscripciones_1 i
-       LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(i.IDCurso)
+       FROM ${latestInscripcionesSubquery()} iu
+       LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(iu.IDCurso)
        WHERE ${inscClauses.join(' AND ')}
        GROUP BY COALESCE(
          NULLIF(TRIM(c.Nombre_Corto_Curso), ''),
          NULLIF(TRIM(c.Nombre_del_curso), ''),
-         TRIM(i.IDCurso),
+         TRIM(iu.IDCurso),
          'Sin categoría'
        )
        ORDER BY enviados ASC, total ASC, categoria ASC`,

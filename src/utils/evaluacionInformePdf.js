@@ -96,6 +96,9 @@ const sanitizeForFileName = (value) =>
 const sanitizeForPdfText = (value) =>
   String(value ?? '')
     .replace(/\u00D0/g, '')
+    // Normaliza saltos de línea Windows/Mac para evitar artefactos visuales en PDF (ej. "D").
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
     .replace(/[^\S\r\n]+/g, ' ')
     .replace(/./g, (ch) => {
       const code = ch.charCodeAt(0);
