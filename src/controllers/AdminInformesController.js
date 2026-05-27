@@ -14,6 +14,17 @@ function anioMesBogota() {
   return { anio: y, mes: m, mesNum: Number(m) };
 }
 
+function getPeriodoDefault(mesNum) {
+  return Number(mesNum) <= 7 ? 'ene_jul' : 'ago_dic';
+}
+
+function getPeriodoMonths(periodo, mesActual) {
+  if (periodo === 'ene_jul') return { mesInicio: 1, mesFin: 7 };
+  if (periodo === 'ago_dic') return { mesInicio: 8, mesFin: 12 };
+  const def = getPeriodoDefault(mesActual);
+  return def === 'ene_jul' ? { mesInicio: 1, mesFin: 7 } : { mesInicio: 8, mesFin: 12 };
+}
+
 function buildListWhere(query) {
   const fechaInicio = query.fechaInicio ? String(query.fechaInicio).trim() : '';
   const fechaFin = query.fechaFin ? String(query.fechaFin).trim() : '';
@@ -21,7 +32,9 @@ function buildListWhere(query) {
   const categoria = query.categoria ? String(query.categoria).trim() : '';
   const entrenador = query.entrenador ? String(query.entrenador).trim() : '';
   const linea = query.linea ? String(query.linea).trim() : '';
+  const periodo = query.periodo ? String(query.periodo).trim() : '';
   const estado = query.estado ? String(query.estado).trim().toLowerCase() : 'todos';
+  const { mesNum: mesActualBogota } = anioMesBogota();
 
   const clauses = ['1=1'];
   const repl = [];
@@ -51,6 +64,11 @@ function buildListWhere(query) {
     clauses.push('YEAR(e.fecha_creacion) = ?');
     repl.push(Number(anio));
   }
+  const periodoNormalizado =
+    periodo === 'ene_jul' || periodo === 'ago_dic' ? periodo : getPeriodoDefault(mesActualBogota);
+  const { mesInicio, mesFin } = getPeriodoMonths(periodoNormalizado, mesActualBogota);
+  clauses.push('MONTH(e.fecha_creacion) BETWEEN ? AND ?');
+  repl.push(mesInicio, mesFin);
 
   if (categoria) {
     clauses.push('e.categoria = ?');
@@ -86,12 +104,12 @@ function buildListWhere(query) {
     repl.push(entrenador);
   }
 
-  return { whereSql: clauses.join(' AND '), repl, categoria, entrenador, anio, linea };
+  return { whereSql: clauses.join(' AND '), repl, categoria, entrenador, anio, linea, periodo: periodoNormalizado, mesInicio, mesFin };
 }
 
 export const getResumenInformes = async (req, res) => {
   try {
-    const { whereSql, repl, categoria, entrenador, anio, linea } = buildListWhere(req.query);
+    const { whereSql, repl, categoria, entrenador, anio, linea, mesInicio, mesFin } = buildListWhere(req.query);
     const [rowResumen] = await sequelize.query(
       `SELECT
          COUNT(*) AS totalEvaluaciones,
@@ -111,9 +129,9 @@ export const getResumenInformes = async (req, res) => {
     const sinInforme = Number(rowResumen?.sinInforme ?? 0);
     const enviados = Number(rowResumen?.enviados ?? 0);
 
-    const { anio: anioActualBogota, mes, mesNum } = anioMesBogota();
+    const { anio: anioActualBogota } = anioMesBogota();
     const anioRef = /^\d{4}$/.test(anio) ? Number(anio) : anioActualBogota;
-    const replSinInformeMes = { mes, anio: anioRef, mesNum };
+    const replSinInformeMes = { anio: anioRef, mesInicio, mesFin };
     const extraClauses = [];
     if (categoria) {
       extraClauses.push('AND TRIM(i.IDCurso) = :categoria');
@@ -148,7 +166,7 @@ export const getResumenInformes = async (req, res) => {
     const [row] = await sequelize.query(
       `SELECT COUNT(*) AS c
        FROM inscripciones_1 i
-       WHERE i.Estado = 'CONFIRMADO' AND i.Tipo = 1 AND i.Mes = :mes AND i.año = :anio
+       WHERE i.Estado = 'CONFIRMADO' AND i.Tipo = 1 AND i.Mes BETWEEN :mesInicio AND :mesFin AND i.año = :anio
        ${extraClauses.join('\n')}
        AND NOT EXISTS (
          SELECT 1 FROM evaluaciones e
@@ -156,21 +174,21 @@ export const getResumenInformes = async (req, res) => {
          AND TRIM(e.categoria) = TRIM(i.IDCurso)
          AND e.informe IS NOT NULL
          AND YEAR(e.fecha_creacion) = :anio
-         AND MONTH(e.fecha_creacion) = :mesNum
+         AND MONTH(e.fecha_creacion) BETWEEN :mesInicio AND :mesFin
        )`,
       {
         replacements: replSinInformeMes,
         type: QueryTypes.SELECT,
       },
     );
-    const participantesSinInformeMesActual = Number(row?.c ?? 0);
+    const participantesSinInformePeriodo = Number(row?.c ?? 0);
 
     return sendSuccess(res, 200, {
       totalEvaluaciones,
       conInforme,
       sinInforme,
       enviados,
-      participantesSinInformeMesActual,
+      participantesSinInformePeriodo,
     });
   } catch (error) {
     return sendError(res, 500, 'Error al obtener resumen de informes', error.message);
@@ -284,15 +302,19 @@ export const getGraficoCategoriasInformes = async (req, res) => {
     const fechaInicio = req.query.fechaInicio ? String(req.query.fechaInicio).trim() : '';
     const fechaFin = req.query.fechaFin ? String(req.query.fechaFin).trim() : '';
     const anioFiltro = req.query.anio ? String(req.query.anio).trim() : '';
-    const { anio: anioActualBogota, mes } = anioMesBogota();
+    const { anio: anioActualBogota, mesNum: mesActualBogota } = anioMesBogota();
     const anio = /^\d{4}$/.test(anioFiltro) ? Number(anioFiltro) : anioActualBogota;
+    const periodo = req.query.periodo ? String(req.query.periodo).trim() : '';
+    const periodoNormalizado =
+      periodo === 'ene_jul' || periodo === 'ago_dic' ? periodo : getPeriodoDefault(mesActualBogota);
+    const { mesInicio, mesFin } = getPeriodoMonths(periodoNormalizado, mesActualBogota);
 
-    const repl = { anio, mes };
+    const repl = { anio, mesInicio, mesFin };
     const inscClauses = [
       'i.Tipo = 1',
       "i.Estado IN ('CONFIRMADO', 'INCAPACITADO', 'RETIRADO')",
       'i.año = :anio',
-      'i.Mes = :mes',
+      'i.Mes BETWEEN :mesInicio AND :mesFin',
     ];
     if (categoria) {
       inscClauses.push('TRIM(i.IDCurso) = :categoria');
