@@ -91,16 +91,24 @@ export const crearEvaluacion = async (req, res) => {
     const fechaCreacion = new Date();
     const identKey = identificacion != null ? String(identificacion).trim() : '';
     const categoriaKey = categoria != null ? String(categoria).trim() : '';
+    const evaluacionIdRaw = req.body.evaluacionId;
+    const evaluacionId =
+      evaluacionIdRaw != null && String(evaluacionIdRaw).trim() !== ''
+        ? Number(evaluacionIdRaw)
+        : null;
 
     const result = await sequelize.transaction(async (transaction) => {
-      const existing = await Evaluaciones.findOne({
-        where: {
-          identificacion: identKey,
-          categoria: categoriaKey,
-          [Op.and]: where(fn('DATE', col('fecha_creacion')), fn('CURDATE')),
-        },
-        transaction,
-      });
+      const existing =
+        Number.isInteger(evaluacionId) && evaluacionId > 0
+          ? await Evaluaciones.findByPk(evaluacionId, { transaction })
+          : await Evaluaciones.findOne({
+              where: {
+                identificacion: identKey,
+                categoria: categoriaKey,
+                [Op.and]: where(fn('DATE', col('fecha_creacion')), fn('CURDATE')),
+              },
+              transaction,
+            });
 
       let evaluacion;
       let actualizada = false;
