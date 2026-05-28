@@ -113,7 +113,7 @@ export const crearEvaluacion = async (req, res) => {
           transaction,
         });
 
-        const fotoFinal = fotoPath ?? existing.foto ?? null;
+        const fotoFinal = fotoPath ?? existing.foto ?? '';
 
         await existing.update(
           {
@@ -136,7 +136,7 @@ export const crearEvaluacion = async (req, res) => {
           {
             participante,
             identificacion: identKey,
-            foto: fotoPath,
+            foto: fotoPath ?? '',
             categoria: categoriaKey,
             fecha_creacion: fechaCreacion,
             nombreCategoria,
@@ -193,7 +193,7 @@ export const crearEvaluacion = async (req, res) => {
       }
       if (!responsableNombre) responsableNombre = 'NO DEFINIDO';
 
-      const fotoParaPdf = fotoPath ?? evaluacion.foto ?? null;
+      const fotoParaPdf = (fotoPath ?? evaluacion.foto ?? '').trim() || null;
 
       const informePath = await generateInformePdf({
         participante,
