@@ -17,7 +17,7 @@ import {
   safeRemoveInformeFile,
 } from '../utils/evaluacionUploads.js';
 import { generateInformePdf } from '../utils/evaluacionInformePdf.js';
-import { getNivelTextoByValor, normalizeRubricaTipo } from '../utils/evaluacionRubricas.js';
+import { getNivelTextoByValor, splitRubricasParaInforme } from '../utils/evaluacionRubricas.js';
 import {
   isInformeFileReadable,
   resolveInformeAbsolutePath,
@@ -180,12 +180,7 @@ export const crearEvaluacion = async (req, res) => {
         };
       });
 
-      const destacados = enriquecidas.filter((item) =>
-        ['FISICO', 'TECNICO', 'TACTICO'].includes(normalizeRubricaTipo(item.tipo)),
-      );
-      const actitudinales = enriquecidas.filter(
-        (item) => normalizeRubricaTipo(item.tipo) === 'ACTITUDINAL',
-      );
+      const { destacados, actitudinales } = splitRubricasParaInforme(enriquecidas);
 
       const responsableEmail = emailSesion;
       let responsableNombre =

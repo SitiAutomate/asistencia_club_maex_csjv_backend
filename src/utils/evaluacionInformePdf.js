@@ -368,31 +368,34 @@ export const generateInformePdf = async ({
   addStyledPage();
   y = PAGE_MARGIN_Y;
 
-  y = drawSection(
-    doc,
-    'Desempeños destacados',
-    'Desempeños físicos, técnicos y/o tácticos',
-    destacadosLimpios,
-    y,
-    addStyledPage,
-    theme,
-  );
-
-  y += 12;
-  if (y > PAGE_HEIGHT - (PAGE_MARGIN_Y + 180)) {
-    addStyledPage();
-    y = PAGE_MARGIN_Y;
+  if (destacadosLimpios.length > 0) {
+    y = drawSection(
+      doc,
+      'Desempeños destacados',
+      'Desempeños físicos, técnicos y/o tácticos',
+      destacadosLimpios,
+      y,
+      addStyledPage,
+      theme,
+    );
+    y += 12;
+    if (y > PAGE_HEIGHT - (PAGE_MARGIN_Y + 180)) {
+      addStyledPage();
+      y = PAGE_MARGIN_Y;
+    }
   }
 
-  y = drawSection(
-    doc,
-    'Desempeños actitudinales',
-    'Evaluación del componente actitudinal',
-    actitudinalesLimpios,
-    y,
-    addStyledPage,
-    theme,
-  );
+  if (actitudinalesLimpios.length > 0) {
+    y = drawSection(
+      doc,
+      'Desempeños actitudinales, psicológicos y culturales',
+      'Evaluación del componente actitudinal, psicológico y cultural',
+      actitudinalesLimpios,
+      y,
+      addStyledPage,
+      theme,
+    );
+  }
 
   const commentWidth = PAGE_WIDTH - MARGIN_X * 2 - 28;
   const commentLines =
