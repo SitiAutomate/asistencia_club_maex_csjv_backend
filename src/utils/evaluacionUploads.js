@@ -16,6 +16,31 @@ export const safeRemoveInformeFile = (informePublicPath) => {
   }
 };
 
+const pickNonEmptyUploadPath = (value) => {
+  if (value == null) return null;
+  const s = String(value).trim();
+  if (!s || s === 'null' || s === 'undefined') return null;
+  return s;
+};
+
+export const parseEvaluacionId = (raw) => {
+  if (raw == null) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  const n = Number.parseInt(s, 10);
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
+
+/** Prioridad: archivo nuevo subido → ruta enviada por el cliente → foto ya guardada en BD. */
+export const resolveFotoEvaluacion = ({ fotoNueva, fotoExistente, fotoDb }) => {
+  return (
+    pickNonEmptyUploadPath(fotoNueva) ||
+    pickNonEmptyUploadPath(fotoExistente) ||
+    pickNonEmptyUploadPath(fotoDb) ||
+    ''
+  );
+};
+
 export const getUploadedFieldPath = (req, fieldName) => {
   const filesByField = Array.isArray(req.files?.[fieldName]) ? req.files[fieldName] : [];
   if (filesByField[0]?.path) {

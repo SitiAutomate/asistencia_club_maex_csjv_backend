@@ -14,6 +14,8 @@ import { sequelize } from '../database/sequelize.js';
 import { env } from '../config/env.js';
 import {
   getUploadedFieldPath,
+  parseEvaluacionId,
+  resolveFotoEvaluacion,
   safeRemoveInformeFile,
 } from '../utils/evaluacionUploads.js';
 import { generateInformePdf } from '../utils/evaluacionInformePdf.js';
@@ -71,11 +73,10 @@ export const crearEvaluacion = async (req, res) => {
       );
     }
 
-    const fotoPath =
+    const fotoNueva =
       getUploadedFieldPath(req, 'foto') ||
       getUploadedFieldPath(req, 'file') ||
       getUploadedFieldPath(req, 'archivo') ||
-      req.body.foto ||
       null;
     const {
       participante,
@@ -91,24 +92,28 @@ export const crearEvaluacion = async (req, res) => {
     const fechaCreacion = new Date();
     const identKey = identificacion != null ? String(identificacion).trim() : '';
     const categoriaKey = categoria != null ? String(categoria).trim() : '';
-    const evaluacionIdRaw = req.body.evaluacionId;
-    const evaluacionId =
-      evaluacionIdRaw != null && String(evaluacionIdRaw).trim() !== ''
-        ? Number(evaluacionIdRaw)
-        : null;
+    const evaluacionId = parseEvaluacionId(req.body.evaluacionId);
+    const fotoExistenteCliente = req.body.fotoExistente;
 
     const result = await sequelize.transaction(async (transaction) => {
-      const existing =
-        Number.isInteger(evaluacionId) && evaluacionId > 0
-          ? await Evaluaciones.findByPk(evaluacionId, { transaction })
-          : await Evaluaciones.findOne({
-              where: {
-                identificacion: identKey,
-                categoria: categoriaKey,
-                [Op.and]: where(fn('DATE', col('fecha_creacion')), fn('CURDATE')),
-              },
-              transaction,
-            });
+      let existing = null;
+      if (evaluacionId) {
+        existing = await Evaluaciones.findByPk(evaluacionId, { transaction });
+        if (!existing) {
+          const err = new Error('EVALUACION_NO_ENCONTRADA');
+          err.code = 'EVALUACION_NO_ENCONTRADA';
+          throw err;
+        }
+      } else {
+        existing = await Evaluaciones.findOne({
+          where: {
+            identificacion: identKey,
+            categoria: categoriaKey,
+            [Op.and]: where(fn('DATE', col('fecha_creacion')), fn('CURDATE')),
+          },
+          transaction,
+        });
+      }
 
       let evaluacion;
       let actualizada = false;
@@ -121,7 +126,11 @@ export const crearEvaluacion = async (req, res) => {
           transaction,
         });
 
-        const fotoFinal = fotoPath ?? existing.foto ?? '';
+        const fotoFinal = resolveFotoEvaluacion({
+          fotoNueva,
+          fotoExistente: fotoExistenteCliente,
+          fotoDb: existing.foto,
+        });
 
         await existing.update(
           {
@@ -129,7 +138,6 @@ export const crearEvaluacion = async (req, res) => {
             identificacion: identKey,
             foto: fotoFinal,
             categoria: categoriaKey,
-            fecha_creacion: fechaCreacion,
             nombreCategoria,
             comentario: comentarioLimpio,
             fechaEnvio,
@@ -140,11 +148,16 @@ export const crearEvaluacion = async (req, res) => {
         );
         evaluacion = existing;
       } else {
+        const fotoFinal = resolveFotoEvaluacion({
+          fotoNueva,
+          fotoExistente: fotoExistenteCliente,
+          fotoDb: null,
+        });
         evaluacion = await Evaluaciones.create(
           {
             participante,
             identificacion: identKey,
-            foto: fotoPath ?? '',
+            foto: fotoFinal,
             categoria: categoriaKey,
             fecha_creacion: fechaCreacion,
             nombreCategoria,
@@ -196,7 +209,12 @@ export const crearEvaluacion = async (req, res) => {
       }
       if (!responsableNombre) responsableNombre = 'NO DEFINIDO';
 
-      const fotoParaPdf = (fotoPath ?? evaluacion.foto ?? '').trim() || null;
+      const fotoParaPdf =
+        resolveFotoEvaluacion({
+          fotoNueva,
+          fotoExistente: fotoExistenteCliente,
+          fotoDb: evaluacion.foto,
+        }).trim() || null;
 
       const informePath = await generateInformePdf({
         participante,
@@ -274,6 +292,9 @@ export const crearEvaluacion = async (req, res) => {
         : 'Evaluacion creada correctamente',
     );
   } catch (error) {
+    if (error?.code === 'EVALUACION_NO_ENCONTRADA') {
+      return sendError(res, 404, 'La evaluación a editar no existe o ya fue eliminada');
+    }
     return sendError(res, 500, 'Error al crear la evaluacion', error.message);
   }
 };
