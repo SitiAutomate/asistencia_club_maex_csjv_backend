@@ -400,14 +400,12 @@ export const generateInformePdf = async ({
       ? [comentarioLimpio]
       : comentarioLimpio.split('\n');
   const commentLineGap = 2;
-  const commentLineHeight =
-    doc.font('Helvetica').fontSize(11.5).currentLineHeight() + commentLineGap;
   const commentHeight = commentLines.reduce((sum, line) => {
     const h = doc.font('Helvetica').fontSize(11.5).heightOfString(line || ' ', {
       width: commentWidth,
       lineGap: commentLineGap,
     });
-    return sum + Math.max(commentLineHeight, h);
+    return sum + h;
   }, 0);
   const blockHeight = Math.max(84, 22 + commentHeight + 24);
 
@@ -431,12 +429,16 @@ export const generateInformePdf = async ({
   let commentY = y + 34;
   doc.font('Helvetica').fontSize(11.5).fillColor(theme.cardText);
   for (const line of commentLines) {
-    doc.text(line || ' ', MARGIN_X + 14, commentY, {
+    const lineText = line || ' ';
+    const renderedHeight = doc.heightOfString(lineText, {
       width: commentWidth,
       lineGap: commentLineGap,
-      lineBreak: false,
     });
-    commentY += commentLineHeight;
+    doc.text(lineText, MARGIN_X + 14, commentY, {
+      width: commentWidth,
+      lineGap: commentLineGap,
+    });
+    commentY += renderedHeight;
   }
   y += blockHeight + 20;
 
