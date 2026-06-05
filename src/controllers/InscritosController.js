@@ -54,11 +54,18 @@ const mapInscripcionPeriodoRow = (row) => ({
     : null,
 });
 
+const estadosQueryIncluyenIncapacitado = (estadoQuery) =>
+  String(estadoQuery || '')
+    .split(',')
+    .map((estado) => estado.trim().toUpperCase())
+    .includes('INCAPACITADO');
+
 const shouldUsePeriodoScope = (query) =>
   String(query.scope || '').toLowerCase() === 'periodo' ||
   Boolean(query.periodo) ||
   String(query.forReportes || '').toLowerCase() === 'true' ||
-  String(query.forReportes || '') === '1';
+  String(query.forReportes || '') === '1' ||
+  estadosQueryIncluyenIncapacitado(query.estado);
 
 const obtenerInscritosPeriodo = async (req, res) => {
   const withRutaExtra = String(req.query.withRutaExtra || 'false').toLowerCase() === 'true';
