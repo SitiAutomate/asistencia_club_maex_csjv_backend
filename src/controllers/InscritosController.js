@@ -54,11 +54,17 @@ const mapInscripcionPeriodoRow = (row) => ({
     : null,
 });
 
+const shouldUsePeriodoScope = (query) =>
+  String(query.scope || '').toLowerCase() === 'periodo' ||
+  Boolean(query.periodo) ||
+  String(query.forReportes || '').toLowerCase() === 'true' ||
+  String(query.forReportes || '') === '1';
+
 const obtenerInscritosPeriodo = async (req, res) => {
   const withRutaExtra = String(req.query.withRutaExtra || 'false').toLowerCase() === 'true';
   const idCurso = req.query.idCurso ? String(req.query.idCurso).trim() : null;
   const estados = parseEstadosQuery(req.query.estado, ESTADOS_INFORME_INSCRIPCION);
-  const { anio, mesInicio, mesFin } = resolvePeriodoFiltro({
+  const { periodo, anio, mesInicio, mesFin } = resolvePeriodoFiltro({
     periodo: req.query.periodo,
     anio: req.query.anio,
   });
@@ -99,15 +105,35 @@ const obtenerInscritosPeriodo = async (req, res) => {
     inscritos = await enriquecerConRutaExtra(inscritos);
   }
 
-  return sendSuccess(res, 200, { inscritos }, 'Inscritos del periodo obtenidos correctamente');
+  return sendSuccess(
+    res,
+    200,
+    {
+      inscritos,
+      meta: {
+        scope: 'periodo',
+        periodo,
+        anio,
+        mesInicio,
+        mesFin,
+        total: inscritos.length,
+      },
+    },
+    'Inscritos del periodo obtenidos correctamente',
+  );
+};
+
+export const obtenerInscritosReportes = async (req, res) => {
+  try {
+    return obtenerInscritosPeriodo(req, res);
+  } catch (error) {
+    return sendError(res, 500, 'Error al obtener inscritos para reportes', error.message);
+  }
 };
 
 export const obtenerInscritosActivos = async (req, res) => {
   try {
-    const scopePeriodo =
-      String(req.query.scope || '').toLowerCase() === 'periodo' || Boolean(req.query.periodo);
-
-    if (scopePeriodo) {
+    if (shouldUsePeriodoScope(req.query)) {
       return obtenerInscritosPeriodo(req, res);
     }
 

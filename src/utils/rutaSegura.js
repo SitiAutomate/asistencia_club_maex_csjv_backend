@@ -138,7 +138,7 @@ export const enriquecerConRutaExtra = async (inscritos) => {
     const documento = String(inscrito?.participante?.idParticipante || '').trim();
     const mapaSede = rutasPorSede.get(normalizarSede(inscrito.Sede)) || new Map();
     const rutaExtra = documento ? mapaSede.get(documento) : null;
-    const data = inscrito.toJSON();
+    const data = typeof inscrito?.toJSON === 'function' ? inscrito.toJSON() : { ...inscrito };
 
     return {
       ...data,
