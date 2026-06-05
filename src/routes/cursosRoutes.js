@@ -1,3 +1,4 @@
+/** Mantener sincronizado con docs/openapi.yaml */
 import { Router } from "express";
 import { obtenerCursos } from "../controllers/CursosController.js";
 

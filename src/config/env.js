@@ -33,6 +33,7 @@ export const env = {
     fondoPath: process.env.EVALUACION_FONDO_PATH || '',
     logoPath: process.env.EVALUACION_LOGO_PATH || '',
     logoMaexPath: process.env.EVALUACION_LOGO_MAEX_PATH || '',
+    fotoMaxBytes: Math.max(1, Number(process.env.EVALUACION_FOTO_MAX_MB) || 20) * 1024 * 1024,
   },
   /** Ventana para enviar informes por correo (fecha según America/Bogota). */
   informeEnvio: {

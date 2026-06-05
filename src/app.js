@@ -13,7 +13,12 @@ import EvaluacionesRoutes from './routes/evaluacionesRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import integracionClubRoutes from './routes/integracionClubRoutes.js';
+import docsRoutes from './routes/docsRoutes.js';
 import { getUploadsRootDir } from './utils/storagePaths.js';
+import swaggerUi from 'swagger-ui-express';
+import { getOpenApiSpec, swaggerUiOptions } from './config/swagger.js';
+import { requireSwaggerAccess } from './middlewares/requireSwaggerAccess.js';
+
 const app = express();
 
 app.use(
@@ -37,6 +42,15 @@ app.get('/callback-microsoft', (req, res) => {
   res.redirect(302, `${env.app.frontendUrl}/callback-microsoft${qs}`);
 });
 
+// Assets de Swagger (css/js) sin auth; solo la página HTML exige rol Desarrollador.
+app.use('/api-docs', swaggerUi.serve);
+app.get(
+  ['/api-docs', '/api-docs/'],
+  requireSwaggerAccess,
+  swaggerUi.setup(getOpenApiSpec(), swaggerUiOptions),
+);
+
+app.use('/api/docs', docsRoutes);
 app.use('/api', healthRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/inscritos', InscritosRoutes);

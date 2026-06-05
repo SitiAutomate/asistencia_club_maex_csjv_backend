@@ -1,3 +1,4 @@
+/** Mantener sincronizado con docs/openapi.yaml */
 import { Router } from 'express';
 import {
   crearEvaluacion,
@@ -5,7 +6,7 @@ import {
   getVentanaInformeEnvio,
   obtenerEvaluacionParticipante,
 } from '../controllers/EvaluacionesController.js';
-import { uploadEvaluacion } from '../middlewares/uploadEvaluacion.js';
+import { uploadEvaluacionFoto } from '../middlewares/uploadEvaluacion.js';
 import { requireAuth, requireRoles } from '../middlewares/auth.js';
 import { ROLES } from '../constants/roles.js';
 
@@ -16,7 +17,7 @@ router.use(requireRoles(ROLES.ADMINISTRADOR, ROLES.ENTRENADOR, ROLES.PROVEEDOR))
 
 router.post(
   '/',
-  uploadEvaluacion.single('foto'),
+  uploadEvaluacionFoto,
   crearEvaluacion,
 );
 

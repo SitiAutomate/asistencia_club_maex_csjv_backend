@@ -1,3 +1,4 @@
+/** Mantener sincronizado con docs/openapi.yaml */
 import { Router } from 'express';
 import { obtenerAsistencia, registrarAsistencia } from '../controllers/AsistenciaController.js';
 import { requireAuth, requireRoles } from '../middlewares/auth.js';

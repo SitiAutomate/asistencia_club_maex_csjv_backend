@@ -1,54 +1,12 @@
-import { Op, QueryTypes } from 'sequelize';
+import { QueryTypes } from 'sequelize';
 import { sequelize } from '../database/sequelize.js';
-import Evaluaciones from '../database/models/EvaluacionesModel.js';
 import { sendError, sendSuccess } from '../utils/responseHandler.js';
-
-function anioMesBogota() {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Bogota',
-    year: 'numeric',
-    month: '2-digit',
-  }).formatToParts(new Date());
-  const y = Number(parts.find((p) => p.type === 'year')?.value ?? new Date().getFullYear());
-  const m = parts.find((p) => p.type === 'month')?.value ?? '01';
-  return { anio: y, mes: m, mesNum: Number(m) };
-}
-
-function getPeriodoDefault(mesNum) {
-  return Number(mesNum) <= 7 ? 'ene_jul' : 'ago_dic';
-}
-
-function getPeriodoMonths(periodo, mesActual) {
-  // Ventanas operativas: aunque el filtro se llama semestral, el cálculo se hace por trimestres de corte.
-  if (periodo === 'ene_jul') return { mesInicio: 5, mesFin: 7 };
-  if (periodo === 'ago_dic') return { mesInicio: 10, mesFin: 12 };
-  const def = getPeriodoDefault(mesActual);
-  return def === 'ene_jul' ? { mesInicio: 5, mesFin: 7 } : { mesInicio: 10, mesFin: 12 };
-}
-
-function latestInscripcionesSubquery() {
-  return `(
-    SELECT li.validador_participante, li.IDCurso, li.Tipo, li.año, li.Mes, li.Estado
-    FROM inscripciones_1 li
-    INNER JOIN (
-      SELECT
-        TRIM(validador_participante) AS validador_participante,
-        TRIM(IDCurso) AS IDCurso,
-        MAX(CAST(Mes AS UNSIGNED)) AS max_mes
-      FROM inscripciones_1
-      WHERE Tipo = 1
-        AND año = :anio
-        AND CAST(Mes AS UNSIGNED) BETWEEN :mesInicio AND :mesFin
-      GROUP BY TRIM(validador_participante), TRIM(IDCurso)
-    ) lm
-      ON TRIM(li.validador_participante) = lm.validador_participante
-      AND TRIM(li.IDCurso) = lm.IDCurso
-      AND CAST(li.Mes AS UNSIGNED) = lm.max_mes
-    WHERE li.Tipo = 1
-      AND li.año = :anio
-      AND CAST(li.Mes AS UNSIGNED) BETWEEN :mesInicio AND :mesFin
-  )`;
-}
+import {
+  anioMesBogota,
+  getPeriodoDefault,
+  getPeriodoMonths,
+  inscripcionesValidasPeriodoSubquery,
+} from '../utils/inscripcionesPeriodo.js';
 
 function buildListWhere(query) {
   const fechaInicio = query.fechaInicio ? String(query.fechaInicio).trim() : '';
@@ -190,8 +148,8 @@ export const getResumenInformes = async (req, res) => {
 
     const [row] = await sequelize.query(
       `SELECT COUNT(DISTINCT CONCAT(TRIM(i.validador_participante), '__', TRIM(i.IDCurso))) AS c
-       FROM ${latestInscripcionesSubquery()} i
-       WHERE TRIM(i.Estado) IN ('CONFIRMADO', 'ACTIVO')
+       FROM ${inscripcionesValidasPeriodoSubquery()} i
+       WHERE 1=1
        ${extraClauses.join('\n')}
        AND NOT EXISTS (
          SELECT 1 FROM evaluaciones e
@@ -335,7 +293,7 @@ export const getGraficoCategoriasInformes = async (req, res) => {
     const { mesInicio, mesFin } = getPeriodoMonths(periodoNormalizado, mesActualBogota);
 
     const repl = { anio, mesInicio, mesFin };
-    const inscClauses = ["TRIM(iu.Estado) IN ('CONFIRMADO', 'ACTIVO')"];
+    const inscClauses = ['1=1'];
     if (categoria) {
       inscClauses.push('TRIM(iu.IDCurso) = :categoria');
       repl.categoria = categoria;
@@ -379,6 +337,8 @@ export const getGraficoCategoriasInformes = async (req, res) => {
         evalClauses.push('e.fecha_creacion <= :fechaFin');
         repl.fechaFin = fin;
       }
+    } else if (!fechaInicio) {
+      evalClauses.push('MONTH(e.fecha_creacion) BETWEEN :mesInicio AND :mesFin');
     }
 
     if (entrenador) {
@@ -420,7 +380,7 @@ export const getGraficoCategoriasInformes = async (req, res) => {
           ) THEN 0 ELSE 1 END
         ) AS noEnviados,
          COUNT(*) AS total
-       FROM ${latestInscripcionesSubquery()} iu
+       FROM ${inscripcionesValidasPeriodoSubquery()} iu
        LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(iu.IDCurso)
        WHERE ${inscClauses.join(' AND ')}
        GROUP BY COALESCE(

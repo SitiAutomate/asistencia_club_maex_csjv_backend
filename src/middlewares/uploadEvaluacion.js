@@ -1,7 +1,14 @@
 import fs from 'fs';
 import path from 'path';
 import multer from 'multer';
+import { env } from '../config/env.js';
 import { getEvaluacionesFotosDir } from '../utils/storagePaths.js';
+
+export const evaluacionFotoMaxBytes = env.evaluaciones.fotoMaxBytes;
+export const evaluacionFotoMaxMb = Math.round(evaluacionFotoMaxBytes / (1024 * 1024));
+
+export const evaluacionFotoMaxSizeMessage = () =>
+  `La foto supera el tamaño máximo permitido (${evaluacionFotoMaxMb} MB). Elige otra imagen o reduce su tamaño.`;
 
 const fotosDir = getEvaluacionesFotosDir();
 
@@ -41,6 +48,35 @@ export const uploadEvaluacion = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 10 * 1024 * 1024,
+    fileSize: evaluacionFotoMaxBytes,
   },
 });
+
+export const handleMulterUploadError = (err, res) => {
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({
+      ok: false,
+      success: false,
+      message: evaluacionFotoMaxSizeMessage(),
+    });
+  }
+  if (err?.code === 'LIMIT_UNEXPECTED_FILE') {
+    return res.status(400).json({
+      ok: false,
+      success: false,
+      message: 'Solo se permite un archivo de foto.',
+    });
+  }
+  return res.status(400).json({
+    ok: false,
+    success: false,
+    message: String(err?.message || 'Error al subir la foto'),
+  });
+};
+
+export const uploadEvaluacionFoto = (req, res, next) => {
+  uploadEvaluacion.single('foto')(req, res, (err) => {
+    if (err) return handleMulterUploadError(err, res);
+    next();
+  });
+};

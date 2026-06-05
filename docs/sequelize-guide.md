@@ -1,4 +1,7 @@
-# Guia Sequelize: CRUD y consultas a BD
+# Guía Sequelize: CRUD y consultas a BD
+
+> **Modelo de datos del club:** tablas, relaciones y convenciones en [DATABASE.md](DATABASE.md).  
+> Modelos en producción: `Participantes`, `Inscripciones`, `Cursos`, `Asistencia`, `Rubricas`, `Evaluaciones`, etc. (`src/database/models/`).
 
 ## 1) Preparar entorno
 

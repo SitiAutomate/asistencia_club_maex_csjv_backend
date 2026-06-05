@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt';
 import crypto from 'crypto';
 import Usuarios from '../database/models/UsuariosModel.js';
 import { sendError, sendSuccess } from '../utils/responseHandler.js';
-import { ROLES } from '../constants/roles.js';
+import { ROLES, ROLES_PASSWORD_LOGIN } from '../constants/roles.js';
 import {
   signAccessToken,
 } from '../utils/authJwt.js';
@@ -133,7 +133,7 @@ export const loginProveedor = async (req, res) => {
       return sendError(res, 400, 'Correo y contraseña requeridos');
     }
     const user = await Usuarios.findOne({ where: { email } });
-    if (!user || user.rol !== ROLES.PROVEEDOR) {
+    if (!user || !ROLES_PASSWORD_LOGIN.includes(user.rol)) {
       return sendError(
         res,
         403,
@@ -204,11 +204,11 @@ export const microsoftToken = async (req, res) => {
     }
     const user = await Usuarios.findOne({ where: { email } });
 
-    if (user?.rol === ROLES.PROVEEDOR) {
+    if (user?.rol === ROLES.PROVEEDOR || user?.rol === ROLES.DESARROLLADOR) {
       return sendError(
         res,
         403,
-        'Los proveedores deben iniciar sesion con correo y contraseña en /api/auth/login',
+        'Este rol debe iniciar sesion con correo y contraseña en /api/auth/login',
       );
     }
 
@@ -224,7 +224,12 @@ export const microsoftToken = async (req, res) => {
       rol = ROLES.ADMINISTRADOR;
       usuarioid = user.usuarioid || usuarioid;
       nombre = user.nombre || nombre;
-    } else if (user?.rol && user.rol !== ROLES.ENTRENADOR && user.rol !== ROLES.PROVEEDOR) {
+    } else if (
+      user?.rol &&
+      user.rol !== ROLES.ENTRENADOR &&
+      user.rol !== ROLES.PROVEEDOR &&
+      user.rol !== ROLES.DESARROLLADOR
+    ) {
       return sendError(res, 403, 'Rol no autorizado para acceso Microsoft');
     }
 

@@ -1,0 +1,919 @@
+openapi: 3.0.3
+info:
+  title: API Asistencia Club MAEX
+  description: |
+    API REST del sistema de asistencia, evaluaciones e informes del Club Deportivo San José de Las Vegas (MAEX).
+
+    ## Antes de probar un endpoint
+
+    1. Obtenga un JWT con `POST /api/auth/login` o `POST /api/auth/microsoft/token`.
+    2. En Swagger pulse **Authorize** y escriba: `Bearer <su_token>` (incluya la palabra Bearer).
+    3. Consulte la **Guía de IDs** en el portal `/documentacion` o en `GUIA_IDENTIFICADORES.md`.
+
+    ## ¿De dónde saco el ID del curso?
+
+    Llame primero a **`GET /api/cursos`** con su correo (`?correo=entrenador@club.com`).
+    En la respuesta, cada curso trae **`ID_Curso`** (ej. `"1847"`). Ese valor se usa como:
+    - `idCurso` en `GET /api/inscritos`
+    - `idcurso` en `POST /api/asistencia`
+
+    ## Formato de respuestas (schemas)
+
+    - **Éxito:** `{ "success": true, "message": "...", "data": { ... } }` → el payload útil está en **`data`**.
+    - **Error:** `{ "success": false, "message": "..." }`
+
+    Ver glosario completo en el portal de documentación (sección *Glosario de schemas*).
+
+    ## Roles
+
+    | Rol | Login |
+    |-----|--------|
+    | Entrenador / Administrador | Microsoft OAuth |
+    | Proveedor / Desarrollador | Email + contraseña |
+
+    Mantener este archivo sincronizado al modificar rutas en `src/routes/`.
+  version: 1.0.0
+  contact:
+    name: SitiAutomate
+
+servers:
+  - url: http://localhost:3006
+    description: Desarrollo local
+  - url: '{appUrl}'
+    description: Producción
+    variables:
+      appUrl:
+        default: https://api.ejemplo.com
+
+tags:
+  - name: Salud
+    description: Comprobación de que el API responde.
+  - name: Autenticación
+    description: Registro, login, Microsoft y recuperación de contraseña. Aquí obtiene el JWT.
+  - name: Cursos
+    description: "**Empiece aquí** para obtener `ID_Curso` antes de inscritos o asistencia."
+  - name: Inscritos
+    description: Participantes por curso; use `idCurso` obtenido de GET /api/cursos.
+  - name: Asistencia
+    description: Registro diario; requiere JWT y campos del participante y curso.
+  - name: Rúbricas
+    description: Plantillas de evaluación; el `id` de cada rúbrica se usa al crear evaluaciones.
+  - name: Evaluaciones
+    description: Informes PDF y envío por correo; `identificacion` = documento del participante.
+  - name: Administración
+    description: Solo rol Administrador; métricas globales de informes.
+  - name: Integración club
+    description: API externa con token fijo BEARERINS (no JWT de usuario).
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Token JWT de sesión (login o Microsoft)
+    integracionBearer:
+      type: http
+      scheme: bearer
+      description: Token fijo configurado en BEARERINS (integración externa)
+
+  schemas:
+    ApiError:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+        error:
+          type: string
+          nullable: true
+
+    ApiSuccess:
+      type: object
+      description: |
+        Respuesta estándar cuando todo sale bien. **Lea siempre el objeto `data`**:
+        ahí vienen cursos, inscritos, tokens, etc.
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+          example: OK
+        data:
+          type: object
+          description: Payload variable según el endpoint (ver ejemplos en cada operación).
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+
+    LoginResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+        tokenType:
+          type: string
+          example: Bearer
+        user:
+          $ref: '#/components/schemas/UsuarioSesion'
+
+    UsuarioSesion:
+      type: object
+      properties:
+        email:
+          type: string
+        nombre:
+          type: string
+        rol:
+          type: string
+          enum: [Administrador, Entrenador, Proveedor, Desarrollador]
+        usuarioid:
+          type: string
+
+    RegisterProveedorRequest:
+      type: object
+      required: [email, password, nombre, usuarioid]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+          minLength: 8
+        nombre:
+          type: string
+        usuarioid:
+          type: string
+          description: Documento de identidad del proveedor
+
+    MicrosoftTokenRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+        redirect_uri:
+          type: string
+
+    AsistenciaRegistro:
+      type: object
+      description: |
+        Cuerpo de POST /api/asistencia. El responsable (email) se toma del JWT automáticamente.
+        `idcurso` = mismo valor que `ID_Curso` de GET /api/cursos.
+        `documento` = documento del participante de GET /api/inscritos.
+      required: [documento, nombre, idcurso, curso, reporte]
+      properties:
+        documento:
+          type: string
+          example: "1012345678"
+        nombre:
+          type: string
+          example: Juan Pérez
+        idcurso:
+          type: string
+          example: "1847"
+          description: Copiar de ID_Curso (GET /api/cursos).
+        curso:
+          type: string
+          example: Fútbol categoría A
+          description: Nombre legible del curso (texto libre, coherente con el id).
+        reporte:
+          type: string
+          enum: [Asistió, Faltó, Excusa]
+        comentarios:
+          type: string
+        ruta:
+          type: string
+        sede:
+          type: string
+
+    RubricaBody:
+      type: object
+      properties:
+        nombre:
+          type: string
+        tipo:
+          type: string
+        descripcion:
+          type: string
+        categoria:
+          type: string
+        nombreCategoria:
+          type: string
+        alto:
+          type: string
+        medio:
+          type: string
+        bajo:
+          type: string
+        actividad:
+          type: string
+        comun:
+          type: boolean
+        estado:
+          type: string
+
+    EvaluacionRubricaItem:
+      type: object
+      properties:
+        id_rubrica:
+          type: integer
+          description: ID numérico de GET /api/rubricas (campo `id` en cada rúbrica).
+        valor:
+          type: string
+          enum: [Satisfactorio Alto, Satisfactorio Medio, Satisfactorio Básico]
+
+    CursoItem:
+      type: object
+      description: Elemento de `data.cursos[]` en GET /api/cursos. El identificador del curso es **ID_Curso**.
+      properties:
+        ID_Curso:
+          type: string
+          example: "1847"
+          description: Usar como idCurso (inscritos) e idcurso (asistencia).
+        Nombre_del_curso:
+          type: string
+          example: Fútbol categoría A
+        Nombre_Corto_Curso:
+          type: string
+          example: FUT-A
+        Linea:
+          type: integer
+          example: 3
+        nombreLinea:
+          type: string
+          example: Deportes
+        Actividad:
+          type: string
+
+    CursosListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+        data:
+          type: object
+          properties:
+            cursos:
+              type: array
+              items:
+                $ref: '#/components/schemas/CursoItem'
+            tieneApoyoGlobal:
+              type: boolean
+            esLider:
+              type: boolean
+            actividadesLider:
+              type: array
+              items:
+                type: string
+
+  parameters:
+    AdminFechaInicio:
+      name: fechaInicio
+      in: query
+      schema:
+        type: string
+        format: date
+    AdminFechaFin:
+      name: fechaFin
+      in: query
+      schema:
+        type: string
+        format: date
+    AdminAnio:
+      name: anio
+      in: query
+      schema:
+        type: string
+    AdminCategoria:
+      name: categoria
+      in: query
+      schema:
+        type: string
+    AdminEntrenador:
+      name: entrenador
+      in: query
+      schema:
+        type: string
+    AdminLinea:
+      name: linea
+      in: query
+      schema:
+        type: string
+    AdminPeriodo:
+      name: periodo
+      in: query
+      schema:
+        type: string
+        enum: [ene_jul, ago_dic]
+    AdminEstado:
+      name: estado
+      in: query
+      schema:
+        type: string
+        enum: [todos, enviado, pendiente]
+
+paths:
+  /api/health:
+    get:
+      tags: [Salud]
+      summary: Estado del servicio
+      responses:
+        '200':
+          description: Servicio operativo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /api/auth/register:
+    post:
+      tags: [Autenticación]
+      summary: Registro de proveedor
+      description: Crea cuenta con rol Proveedor; requiere verificación por correo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterProveedorRequest'
+      responses:
+        '201':
+          description: Registro exitoso
+        '400':
+          description: Datos inválidos
+        '409':
+          description: Correo o documento ya registrado
+
+  /api/auth/login:
+    post:
+      tags: [Autenticación]
+      summary: Inicio de sesión (Proveedor / Desarrollador)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Sesión iniciada
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiSuccess'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Credenciales incorrectas
+        '403':
+          description: Cuenta no confirmada o rol no permitido
+
+  /api/auth/verify-email:
+    get:
+      tags: [Autenticación]
+      summary: Confirmar correo (query)
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cuenta confirmada
+        '400':
+          description: Token inválido
+    post:
+      tags: [Autenticación]
+      summary: Confirmar correo (body)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+      responses:
+        '200':
+          description: Cuenta confirmada
+
+  /api/auth/microsoft/url:
+    get:
+      tags: [Autenticación]
+      summary: URL de autorización Microsoft
+      description: Para Entrenadores y Administradores.
+      responses:
+        '200':
+          description: URL OAuth
+        '503':
+          description: Microsoft no configurado
+
+  /api/auth/microsoft/token:
+    post:
+      tags: [Autenticación]
+      summary: Intercambiar código OAuth por JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MicrosoftTokenRequest'
+      responses:
+        '200':
+          description: Sesión iniciada
+        '403':
+          description: Rol debe usar login con contraseña
+
+  /api/auth/forgot-password:
+    post:
+      tags: [Autenticación]
+      summary: Solicitar restablecimiento de contraseña
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+      responses:
+        '200':
+          description: Respuesta genérica (no revela si el correo existe)
+
+  /api/auth/reset-password:
+    post:
+      tags: [Autenticación]
+      summary: Restablecer contraseña
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token:
+                  type: string
+                password:
+                  type: string
+                  minLength: 8
+      responses:
+        '200':
+          description: Contraseña actualizada
+    get:
+      tags: [Autenticación]
+      summary: Restablecer contraseña (query token)
+      parameters:
+        - name: token
+          in: query
+          schema:
+            type: string
+        - name: password
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Contraseña actualizada
+
+  /api/auth/me:
+    get:
+      tags: [Autenticación]
+      summary: Perfil del usuario autenticado
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Datos del usuario
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      user:
+                        $ref: '#/components/schemas/UsuarioSesion'
+        '401':
+          description: No autenticado
+
+  /api/inscritos:
+    get:
+      tags: [Inscritos]
+      summary: Listar inscritos
+      description: |
+        Lista participantes inscritos en un curso.
+
+        **Paso previo:** `GET /api/cursos?correo=...` y copie un valor de **`ID_Curso`**.
+        Páselo aquí como **`idCurso`** (mismo string, ej. `1847`).
+
+        El **documento del participante** en la respuesta se usa luego en asistencia (`documento`) y evaluaciones (`identificacion`).
+      parameters:
+        - name: idCurso
+          in: query
+          description: Valor `ID_Curso` devuelto por GET /api/cursos (no es el nombre del curso).
+          schema:
+            type: string
+            example: "1847"
+        - name: estado
+          in: query
+          description: Estados separados por coma (ej. CONFIRMADO,ACTIVO)
+          schema:
+            type: string
+        - name: lite
+          in: query
+          schema:
+            type: boolean
+        - name: withRutaExtra
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Lista de inscritos
+
+  /api/cursos:
+    get:
+      tags: [Cursos]
+      summary: Listar cursos activos
+      description: |
+        **Endpoint principal para obtener el ID del curso.**
+
+        - Envíe `correo` con el email del entrenador/proveedor logueado.
+        - Para listar todos (admin): `scope=all` según permisos.
+        - En `data.cursos[]` use el campo **`ID_Curso`** en llamadas posteriores.
+
+        No invente IDs: deben existir en esta respuesta.
+      parameters:
+        - name: correo
+          in: query
+          required: true
+          description: Email del docente (el mismo del JWT / sesión).
+          schema:
+            type: string
+            example: entrenador@club.com
+        - name: soloMisCursos
+          in: query
+          schema:
+            type: boolean
+        - name: scope
+          in: query
+          description: Use `all` para ámbito global (administradores).
+          schema:
+            type: string
+            enum: [all]
+      responses:
+        '200':
+          description: Lista de cursos con ID_Curso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CursosListResponse'
+              example:
+                success: true
+                message: OK
+                data:
+                  cursos:
+                    - ID_Curso: "1847"
+                      Nombre_del_curso: Fútbol categoría A
+                      Nombre_Corto_Curso: FUT-A
+                      Linea: 3
+                      nombreLinea: Deportes
+
+  /api/cursos/docente/{correo}:
+    get:
+      tags: [Cursos]
+      summary: Cursos por correo de docente
+      parameters:
+        - name: correo
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Cursos del docente
+
+  /api/asistencia:
+    get:
+      tags: [Asistencia]
+      summary: Consultar asistencia
+      security:
+        - bearerAuth: []
+      description: Roles Administrador, Entrenador o Proveedor.
+      parameters:
+        - name: fechaInicio
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: fechaFin
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: q
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Registros de asistencia
+        '401':
+          description: No autenticado
+        '403':
+          description: Sin permisos
+    post:
+      tags: [Asistencia]
+      summary: Registrar o actualizar asistencia del día
+      description: |
+        Registra o actualiza la asistencia de **hoy** para un participante en un curso.
+
+        **Origen de datos:**
+        1. `GET /api/cursos` → `idcurso` = `ID_Curso`
+        2. `GET /api/inscritos?idCurso=...` → `documento` y `nombre`
+        3. `reporte`: `Asistió` | `Faltó` | `Excusa`
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AsistenciaRegistro'
+      responses:
+        '200':
+          description: Asistencia guardada
+
+  /api/rubricas:
+    get:
+      tags: [Rúbricas]
+      summary: Listar rúbricas
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Lista de rúbricas
+    post:
+      tags: [Rúbricas]
+      summary: Crear rúbrica
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RubricaBody'
+      responses:
+        '201':
+          description: Rúbrica creada
+
+  /api/rubricas/{id}:
+    put:
+      tags: [Rúbricas]
+      summary: Editar rúbrica
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID numérico de la rúbrica (campo `id` en GET /api/rubricas).
+          schema:
+            type: integer
+            example: 42
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RubricaBody'
+      responses:
+        '200':
+          description: Rúbrica actualizada
+
+  /api/evaluaciones:
+    post:
+      tags: [Evaluaciones]
+      summary: Crear o actualizar evaluación
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                foto:
+                  type: string
+                  format: binary
+                participante:
+                  type: string
+                identificacion:
+                  type: string
+                categoria:
+                  type: string
+                comentario:
+                  type: string
+                rubricas:
+                  type: string
+                  description: JSON array de EvaluacionRubricaItem
+                evaluacionId:
+                  type: integer
+                  description: Si se envía, actualiza evaluación existente
+      responses:
+        '200':
+          description: Evaluación guardada
+
+  /api/evaluaciones/participante/{identificacion}:
+    get:
+      tags: [Evaluaciones]
+      summary: Historial de evaluaciones de un participante
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: identificacion
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: categoria
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Evaluaciones del participante
+
+  /api/evaluaciones/ventana-envio:
+    get:
+      tags: [Evaluaciones]
+      summary: Ventana habilitada para envío de informes por correo
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Estado de la ventana (fechas Colombia)
+
+  /api/evaluaciones/{id}/enviar:
+    post:
+      tags: [Evaluaciones]
+      summary: Encolar envío de informe por correo
+      description: |
+        `id` = identificador numérico de la evaluación (respuesta al crear con POST /api/evaluaciones
+        o listado en GET /api/evaluaciones/participante/{identificacion}).
+
+        Respete la ventana de envío: consulte GET /api/evaluaciones/ventana-envio antes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: ID de la fila en tabla evaluaciones.
+          schema:
+            type: integer
+            example: 1205
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                emailDestino:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Envío encolado o completado
+        '403':
+          description: Fuera de ventana de envío
+
+  /api/admin/informes/resumen:
+    get:
+      tags: [Administración]
+      summary: Resumen de informes (admin)
+      security:
+        - bearerAuth: []
+      description: Solo rol Administrador.
+      parameters:
+        - $ref: '#/components/parameters/AdminFechaInicio'
+        - $ref: '#/components/parameters/AdminFechaFin'
+        - $ref: '#/components/parameters/AdminAnio'
+        - $ref: '#/components/parameters/AdminCategoria'
+        - $ref: '#/components/parameters/AdminEntrenador'
+        - $ref: '#/components/parameters/AdminLinea'
+        - $ref: '#/components/parameters/AdminPeriodo'
+        - $ref: '#/components/parameters/AdminEstado'
+      responses:
+        '200':
+          description: Métricas resumidas
+        '403':
+          description: No autorizado
+
+  /api/admin/informes/entrenadores:
+    get:
+      tags: [Administración]
+      summary: Lista de entrenadores para filtros
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Entrenadores
+
+  /api/admin/informes/categorias:
+    get:
+      tags: [Administración]
+      summary: Categorías para filtros
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Categorías
+
+  /api/admin/informes/grafico-categorias:
+    get:
+      tags: [Administración]
+      summary: Datos para gráfico por categoría
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AdminFechaInicio'
+        - $ref: '#/components/parameters/AdminFechaFin'
+        - $ref: '#/components/parameters/AdminAnio'
+        - $ref: '#/components/parameters/AdminCategoria'
+        - $ref: '#/components/parameters/AdminEntrenador'
+        - $ref: '#/components/parameters/AdminLinea'
+        - $ref: '#/components/parameters/AdminPeriodo'
+        - $ref: '#/components/parameters/AdminEstado'
+      responses:
+        '200':
+          description: Series del gráfico
+
+  /api/admin/informes:
+    get:
+      tags: [Administración]
+      summary: Listado paginado de informes
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/AdminFechaInicio'
+        - $ref: '#/components/parameters/AdminFechaFin'
+        - $ref: '#/components/parameters/AdminAnio'
+        - $ref: '#/components/parameters/AdminCategoria'
+        - $ref: '#/components/parameters/AdminEntrenador'
+        - $ref: '#/components/parameters/AdminLinea'
+        - $ref: '#/components/parameters/AdminPeriodo'
+        - $ref: '#/components/parameters/AdminEstado'
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Lista paginada
+
+  /api/integracion-club/{sedeNombre}:
+    get:
+      tags: [Integración club]
+      summary: Extraclases del mes actual por sede
+      security:
+        - integracionBearer: []
+      parameters:
+        - name: sedeNombre
+          in: path
+          required: true
+          schema:
+            type: string
+          description: RETIRO, MEDELLÍN o código 1/2
+      responses:
+        '200':
+          description: Lista de extraclases
+        '401':
+          description: Token BEARERINS inválido

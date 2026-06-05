@@ -1,3 +1,4 @@
+/** Mantener sincronizado con docs/openapi.yaml */
 import express from 'express';
 import { obtenerInscritosActivos } from '../controllers/InscritosController.js';
 

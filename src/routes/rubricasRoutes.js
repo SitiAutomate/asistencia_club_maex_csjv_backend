@@ -1,3 +1,4 @@
+/** Mantener sincronizado con docs/openapi.yaml */
 import { Router } from 'express';
 import { crearRubrica, editarRubrica, obtenerRubricas } from '../controllers/RubricasController.js';
 import { requireAuth, requireRoles } from '../middlewares/auth.js';
