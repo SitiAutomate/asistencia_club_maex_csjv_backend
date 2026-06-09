@@ -3,10 +3,7 @@ import Asistencia from '../database/models/AsistenciaModel.js';
 import Asignaciones from '../database/models/AsignacionModel.js';
 import Cursos from '../database/models/CursosModel.js';
 import { sendError, sendSuccess } from '../utils/responseHandler.js';
-import {
-  eliminarNovedadRutaSegura,
-  registrarNovedadRutaSegura,
-} from '../utils/rutaSegura.js';
+import { sincronizarRutaSeguraSegunAsistenciaDelDia } from '../utils/asistenciaRutaSeguraSync.js';
 
 async function resolveCursosAsignados(correo) {
   const asignaciones = await Asignaciones.findAll({
@@ -127,7 +124,8 @@ export const registrarAsistencia = async (req, res) => {
     const { documento, nombre, idcurso, curso, reporte, comentarios, ruta, sede, tieneRutaExtra } = req.body;
     const responsable = req.user.email;
     const tieneRuta = Boolean(tieneRutaExtra) && Boolean(documento) && Boolean(sede);
-    const reportNormalizado = String(reporte || '').trim();
+    const reportoAsistencia = String(reporte || '').trim() === 'Asistió';
+    const debeSyncRutaSegura = Boolean(documento && sede) && (tieneRuta || reportoAsistencia);
 
     const inicioHoy = new Date();
     inicioHoy.setHours(0, 0, 0, 0);
@@ -148,7 +146,6 @@ export const registrarAsistencia = async (req, res) => {
     });
 
     if (asistenciaHoy) {
-      const reportePrevio = String(asistenciaHoy.reporte || '').trim();
       await Asistencia.update(
         { nombre, curso, reporte, comentarios, ruta },
         {
@@ -176,13 +173,12 @@ export const registrarAsistencia = async (req, res) => {
         },
       });
 
-      if (tieneRuta) {
-        if (reportNormalizado === 'Faltó' || reportNormalizado === 'Excusa') {
-          const note = reportNormalizado === 'Excusa' ? String(comentarios || '').trim() || 'Excusa' : 'Faltó';
-          await registrarNovedadRutaSegura({ sede, document: documento, note });
-        } else if (reportNormalizado === 'Asistió' && (reportePrevio === 'Faltó' || reportePrevio === 'Excusa')) {
-          await eliminarNovedadRutaSegura({ sede, document: documento });
-        }
+      if (debeSyncRutaSegura) {
+        await sincronizarRutaSeguraSegunAsistenciaDelDia({
+          sede,
+          documento,
+          tieneRutaExtra: tieneRuta,
+        });
       }
 
       return sendSuccess(
@@ -204,9 +200,12 @@ export const registrarAsistencia = async (req, res) => {
       ruta,
     });
 
-    if (tieneRuta && (reportNormalizado === 'Faltó' || reportNormalizado === 'Excusa')) {
-      const note = reportNormalizado === 'Excusa' ? String(comentarios || '').trim() || 'Excusa' : 'Faltó';
-      await registrarNovedadRutaSegura({ sede, document: documento, note });
+    if (debeSyncRutaSegura) {
+      await sincronizarRutaSeguraSegunAsistenciaDelDia({
+        sede,
+        documento,
+        tieneRutaExtra: tieneRuta,
+      });
     }
 
     return sendSuccess(res, 200, { asistencia }, 'Asistencia registrada correctamente');

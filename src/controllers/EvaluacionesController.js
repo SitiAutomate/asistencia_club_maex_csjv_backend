@@ -343,10 +343,16 @@ const correosFamiliaFromInscrito = (inscrito) => {
   const participante = inscrito?.participante || {};
   const padreInfo = participante?.padreInfo || {};
   const responsableInfo = participante?.responsableInfo || {};
-  return [padreInfo?.emailPadre, padreInfo?.emailMadre, responsableInfo?.Correo_Responsable]
+  const raw = [padreInfo?.emailPadre, padreInfo?.emailMadre, responsableInfo?.Correo_Responsable]
     .map(normalizarCorreo)
     .filter(Boolean)
     .filter(correoDestinoValido);
+  return [...new Set(raw)];
+};
+
+const resolveDestinatariosFamiliaInforme = async (identificacion) => {
+  const inscrito = await obtenerInscritoParaCorreos(identificacion);
+  return correosFamiliaFromInscrito(inscrito);
 };
 
 const obtenerInscritoParaCorreos = async (identificacion) => {
@@ -449,6 +455,7 @@ export const getVentanaInformeEnvio = (req, res) => {
   const fechaHoy = fechaHoyColombia();
   return sendSuccess(res, 200, {
     envioInformePermitido: result.ok,
+    envioCorreosFamiliaHabilitado: env.evaluacionEmail.incluirCorreosFamilia,
     codigoBloqueo: result.ok ? null : result.code,
     fechaInicio: env.informeEnvio.desde,
     fechaFin: env.informeEnvio.hasta,
@@ -465,16 +472,17 @@ export const enviarEvaluacion = async (req, res) => {
     }
 
     const id = Number(req.params.id);
-    const destinatario = String(req.body?.destinatario ?? req.body?.correo ?? '').trim();
 
     if (!Number.isInteger(id) || id < 1) {
       return sendError(res, 400, 'Id de evaluacion invalido');
     }
-    if (!destinatario) {
-      return sendError(res, 400, 'Indique el correo destinatario (campo destinatario o correo)');
-    }
-    if (!correoDestinoValido(destinatario)) {
-      return sendError(res, 400, 'Correo destinatario invalido');
+
+    if (!env.evaluacionEmail.incluirCorreosFamilia) {
+      return sendError(
+        res,
+        403,
+        'El envío de informes a padres/responsables no está habilitado (EVALUACION_EMAIL_INCLUIR_CORREOS_FAMILIA).',
+      );
     }
 
     if (!env.email.host || !env.email.user) {
@@ -510,15 +518,13 @@ export const enviarEvaluacion = async (req, res) => {
       evaluacion.nombreCategoria || evaluacion.categoria || 'Categoria';
     const lineaCurso = await resolveLineaDesdeCurso({ categoria: evaluacion.categoria });
 
-    const destinatarios = new Set([normalizarCorreo(destinatario)]);
-    if (env.evaluacionEmail.incluirCorreosFamilia) {
-      const inscrito = await obtenerInscritoParaCorreos(evaluacion.identificacion);
-      const correosFamilia = correosFamiliaFromInscrito(inscrito);
-      correosFamilia.forEach((correo) => destinatarios.add(correo));
-    }
-    const destinatariosFinales = [...destinatarios].filter(correoDestinoValido);
+    const destinatariosFinales = await resolveDestinatariosFamiliaInforme(evaluacion.identificacion);
     if (destinatariosFinales.length === 0) {
-      return sendError(res, 400, 'No hay correos válidos para enviar el informe');
+      return sendError(
+        res,
+        400,
+        'No hay correos de padre, madre o responsable registrados para este participante.',
+      );
     }
 
     const enqueueResult = await enqueueInformeEmailJob({
@@ -545,9 +551,8 @@ export const enviarEvaluacion = async (req, res) => {
         evaluacionId: id,
         jobId: enqueueResult.job.id,
         estadoEnvio: 'pendiente',
-        destinatario,
         destinatarios: destinatariosFinales,
-        incluyoCorreosFamilia: env.evaluacionEmail.incluirCorreosFamilia,
+        incluyoCorreosFamilia: true,
       },
       'Solicitud de envío registrada. El correo se enviará en segundo plano.',
     );

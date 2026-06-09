@@ -1,6 +1,6 @@
 import { env } from '../config/env.js';
 
-const getHoyBogota = () =>
+export const getHoyBogota = () =>
   new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Bogota',
     year: 'numeric',
