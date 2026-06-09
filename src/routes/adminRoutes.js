@@ -7,6 +7,7 @@ import {
   getEntrenadoresInformes,
   getCategoriasInformes,
   listarInformesAdmin,
+  exportarInformesAdmin,
   getGraficoCategoriasInformes,
 } from '../controllers/AdminInformesController.js';
 
@@ -17,6 +18,7 @@ router.use(requireAuth, requireRoles(ROLES.ADMINISTRADOR));
 router.get('/informes/resumen', getResumenInformes);
 router.get('/informes/entrenadores', getEntrenadoresInformes);
 router.get('/informes/categorias', getCategoriasInformes);
+router.get('/informes/export', exportarInformesAdmin);
 router.get('/informes', listarInformesAdmin);
 router.get('/informes/grafico-categorias', getGraficoCategoriasInformes);
 

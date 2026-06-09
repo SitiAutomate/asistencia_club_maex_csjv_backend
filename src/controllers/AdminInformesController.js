@@ -8,101 +8,245 @@ import {
   inscripcionesValidasPeriodoSubquery,
 } from '../utils/inscripcionesPeriodo.js';
 
-function buildListWhere(query) {
+const evalRecienteEnPeriodoSubquery = () => `(
+  SELECT
+    e.id,
+    e.participante,
+    e.identificacion,
+    e.categoria,
+    e.nombreCategoria,
+    e.informe,
+    e.enviado,
+    e.fechaEnvio,
+    e.fecha_creacion,
+    e.fecha_modificacion
+  FROM evaluaciones e
+  INNER JOIN (
+    SELECT
+      TRIM(identificacion) AS identificacion,
+      TRIM(categoria) AS categoria,
+      MAX(fecha_creacion) AS max_fecha
+    FROM evaluaciones
+    WHERE YEAR(fecha_creacion) = :anio
+      AND MONTH(fecha_creacion) BETWEEN :mesInicio AND :mesFin
+    GROUP BY TRIM(identificacion), TRIM(categoria)
+  ) mx
+    ON TRIM(e.identificacion) = mx.identificacion
+   AND TRIM(e.categoria) = mx.categoria
+   AND e.fecha_creacion = mx.max_fecha
+  WHERE YEAR(e.fecha_creacion) = :anio
+    AND MONTH(e.fecha_creacion) BETWEEN :mesInicio AND :mesFin
+)`;
+
+function buildAdminInscripcionesFilters(query) {
   const fechaInicio = query.fechaInicio ? String(query.fechaInicio).trim() : '';
   const fechaFin = query.fechaFin ? String(query.fechaFin).trim() : '';
-  const anio = query.anio ? String(query.anio).trim() : '';
+  const anioFiltro = query.anio ? String(query.anio).trim() : '';
   const categoria = query.categoria ? String(query.categoria).trim() : '';
   const entrenador = query.entrenador ? String(query.entrenador).trim() : '';
   const linea = query.linea ? String(query.linea).trim() : '';
   const periodo = query.periodo ? String(query.periodo).trim() : '';
   const estado = query.estado ? String(query.estado).trim().toLowerCase() : 'todos';
-  const { mesNum: mesActualBogota } = anioMesBogota();
+  const { anio: anioActualBogota, mesNum: mesActualBogota } = anioMesBogota();
+  const anio = /^\d{4}$/.test(anioFiltro) ? Number(anioFiltro) : anioActualBogota;
+  const periodoNormalizado =
+    periodo === 'ene_jul' || periodo === 'ago_dic' ? periodo : getPeriodoDefault(mesActualBogota);
+  const { mesInicio, mesFin } = getPeriodoMonths(periodoNormalizado, mesActualBogota);
 
-  const clauses = ['1=1'];
-  const repl = [];
+  const repl = { anio, mesInicio, mesFin };
+  const inscClauses = ['1=1'];
+  const outerClauses = ['1=1'];
+
+  if (categoria) {
+    inscClauses.push('TRIM(iu.IDCurso) = :categoria');
+    repl.categoria = categoria;
+  }
+
+  if (linea) {
+    inscClauses.push(
+      `EXISTS (
+         SELECT 1 FROM cursos_2025 cx
+         LEFT JOIN linea lx ON lx.IDLinea = cx.Linea
+         WHERE TRIM(cx.ID_Curso) = TRIM(iu.IDCurso)
+           AND TRIM(lx.Nombre_Linea) = :linea
+       )`,
+    );
+    repl.linea = linea;
+  }
+
+  if (estado === 'enviado') {
+    outerClauses.push('ev.enviado = 1');
+  } else if (estado === 'no_enviado') {
+    outerClauses.push('(ev.id IS NULL OR ev.enviado IS NULL OR ev.enviado = 0)');
+  } else if (estado === 'con_pdf') {
+    outerClauses.push("(ev.informe IS NOT NULL AND TRIM(ev.informe) <> '')");
+  } else if (estado === 'sin_pdf') {
+    outerClauses.push("(ev.id IS NULL OR ev.informe IS NULL OR TRIM(ev.informe) = '')");
+  }
+
+  if (entrenador) {
+    outerClauses.push(
+      `ev.id IS NOT NULL AND EXISTS (
+         SELECT 1 FROM detalle_evaluacion d
+         WHERE d.id_evaluacion = ev.id
+           AND TRIM(d.responsable) = :entrenador
+       )`,
+    );
+    repl.entrenador = entrenador;
+  }
 
   if (fechaInicio && fechaFin) {
     const ini = new Date(`${fechaInicio}T00:00:00`);
     const fin = new Date(`${fechaFin}T23:59:59.999`);
     if (!Number.isNaN(ini.getTime()) && !Number.isNaN(fin.getTime())) {
-      clauses.push('e.fecha_creacion BETWEEN ? AND ?');
-      repl.push(ini, fin);
+      outerClauses.push(
+        `(ev.id IS NULL OR (ev.fecha_creacion >= :fechaInicio AND ev.fecha_creacion <= :fechaFin))`,
+      );
+      repl.fechaInicio = ini;
+      repl.fechaFin = fin;
     }
   } else if (fechaInicio) {
     const ini = new Date(`${fechaInicio}T00:00:00`);
     if (!Number.isNaN(ini.getTime())) {
-      clauses.push('e.fecha_creacion >= ?');
-      repl.push(ini);
+      outerClauses.push('(ev.id IS NULL OR ev.fecha_creacion >= :fechaInicio)');
+      repl.fechaInicio = ini;
     }
   } else if (fechaFin) {
     const fin = new Date(`${fechaFin}T23:59:59.999`);
     if (!Number.isNaN(fin.getTime())) {
-      clauses.push('e.fecha_creacion <= ?');
-      repl.push(fin);
+      outerClauses.push('(ev.id IS NULL OR ev.fecha_creacion <= :fechaFin)');
+      repl.fechaFin = fin;
     }
   }
 
-  if (/^\d{4}$/.test(anio)) {
-    clauses.push('YEAR(e.fecha_creacion) = ?');
-    repl.push(Number(anio));
-  }
-  const periodoNormalizado =
-    periodo === 'ene_jul' || periodo === 'ago_dic' ? periodo : getPeriodoDefault(mesActualBogota);
-  const { mesInicio, mesFin } = getPeriodoMonths(periodoNormalizado, mesActualBogota);
-  clauses.push('MONTH(e.fecha_creacion) BETWEEN ? AND ?');
-  repl.push(mesInicio, mesFin);
+  return {
+    repl,
+    inscClauses,
+    outerClauses,
+    anio,
+    mesInicio,
+    mesFin,
+    periodo: periodoNormalizado,
+    categoria,
+    entrenador,
+    linea,
+  };
+}
 
-  if (categoria) {
-    clauses.push('e.categoria = ?');
-    repl.push(categoria);
+function buildAdminInscripcionesFromSql() {
+  return `
+    FROM ${inscripcionesValidasPeriodoSubquery()} iu
+    LEFT JOIN participantes p ON TRIM(p.IDParticipante) = TRIM(iu.validador_participante)
+    LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(iu.IDCurso)
+    LEFT JOIN ${evalRecienteEnPeriodoSubquery()} ev
+      ON TRIM(ev.identificacion) = TRIM(iu.validador_participante)
+     AND TRIM(ev.categoria) = TRIM(iu.IDCurso)
+    LEFT JOIN (
+      SELECT id_evaluacion, MIN(TRIM(responsable)) AS entrenador
+      FROM detalle_evaluacion
+      WHERE responsable IS NOT NULL AND TRIM(responsable) <> ''
+      GROUP BY id_evaluacion
+    ) d ON d.id_evaluacion = ev.id`;
+}
+
+function mapAdminInformeRow(r) {
+  const identificacion = String(r.identificacion || '').trim();
+  const categoria = String(r.categoria || '').trim();
+  const informe = String(r.informe || '').trim();
+  return {
+    id: r.id ?? null,
+    rowKey: r.id != null ? String(r.id) : `${identificacion}__${categoria}`,
+    participante: r.participante || null,
+    identificacion: identificacion || null,
+    categoria: categoria || null,
+    nombreCategoria: r.nombreCategoria || null,
+    informe: informe || null,
+    enviado: Boolean(r.enviado),
+    fechaEnvio: r.fechaEnvio ?? null,
+    fecha_creacion: r.fecha_creacion ?? null,
+    fecha_modificacion: r.fecha_modificacion ?? null,
+    entrenador: r.entrenador || null,
+  };
+}
+
+async function queryAdminInformesRows(query, { limit, offset = 0, forExport = false } = {}) {
+  const { repl, inscClauses, outerClauses } = buildAdminInscripcionesFilters(query);
+  const fromSql = buildAdminInscripcionesFromSql();
+  const whereSql = `${inscClauses.join(' AND ')} AND ${outerClauses.join(' AND ')}`;
+
+  const orderSql = forExport
+    ? `ORDER BY COALESCE(p.Nombre_Completo, ev.participante) ASC, TRIM(iu.IDCurso) ASC`
+    : `ORDER BY
+         CASE WHEN ev.fecha_creacion IS NULL THEN 1 ELSE 0 END,
+         ev.fecha_creacion DESC,
+         COALESCE(p.Nombre_Completo, ev.participante) ASC,
+         TRIM(iu.IDCurso) ASC`;
+
+  const selectSql = forExport
+    ? `SELECT
+         ev.id,
+         COALESCE(NULLIF(TRIM(ev.participante), ''), NULLIF(TRIM(p.Nombre_Completo), '')) AS participante,
+         TRIM(iu.validador_participante) AS identificacion,
+         TRIM(iu.IDCurso) AS categoria,
+         COALESCE(
+           NULLIF(TRIM(c.Nombre_Corto_Curso), ''),
+           NULLIF(TRIM(c.Nombre_del_curso), ''),
+           NULLIF(TRIM(ev.nombreCategoria), ''),
+           TRIM(iu.IDCurso)
+         ) AS nombreCategoria,
+         NULLIF(TRIM(ev.informe), '') AS informe,
+         ev.enviado,
+         ev.fecha_creacion,
+         d.entrenador`
+    : `SELECT
+         ev.id,
+         COALESCE(NULLIF(TRIM(ev.participante), ''), NULLIF(TRIM(p.Nombre_Completo), '')) AS participante,
+         TRIM(iu.validador_participante) AS identificacion,
+         TRIM(iu.IDCurso) AS categoria,
+         COALESCE(
+           NULLIF(TRIM(c.Nombre_Corto_Curso), ''),
+           NULLIF(TRIM(c.Nombre_del_curso), ''),
+           NULLIF(TRIM(ev.nombreCategoria), ''),
+           TRIM(iu.IDCurso)
+         ) AS nombreCategoria,
+         NULLIF(TRIM(ev.informe), '') AS informe,
+         ev.enviado,
+         ev.fechaEnvio,
+         ev.fecha_creacion,
+         ev.fecha_modificacion,
+         d.entrenador`;
+
+  let sql = `${selectSql} ${fromSql} WHERE ${whereSql} ${orderSql}`;
+  const replacements = { ...repl };
+
+  if (limit != null) {
+    sql += ' LIMIT :limit OFFSET :offset';
+    replacements.limit = limit;
+    replacements.offset = offset;
   }
 
-  if (linea) {
-    clauses.push(
-      `EXISTS (
-         SELECT 1 FROM cursos_2025 c
-         LEFT JOIN linea l ON l.IDLinea = c.Linea
-         WHERE TRIM(c.ID_Curso) = TRIM(e.categoria)
-           AND TRIM(l.Nombre_Linea) = ?
-       )`,
-    );
-    repl.push(linea);
-  }
-
-  if (estado === 'enviado') {
-    clauses.push('e.enviado = 1');
-  } else if (estado === 'no_enviado') {
-    clauses.push('(e.enviado IS NULL OR e.enviado = 0)');
-  } else if (estado === 'con_pdf') {
-    clauses.push("(e.informe IS NOT NULL AND TRIM(e.informe) <> '')");
-  } else if (estado === 'sin_pdf') {
-    clauses.push("(e.informe IS NULL OR TRIM(e.informe) = '')");
-  }
-
-  if (entrenador) {
-    clauses.push(
-      `EXISTS (SELECT 1 FROM detalle_evaluacion d WHERE d.id_evaluacion = e.id AND TRIM(d.responsable) = ?)`,
-    );
-    repl.push(entrenador);
-  }
-
-  return { whereSql: clauses.join(' AND '), repl, categoria, entrenador, anio, linea, periodo: periodoNormalizado, mesInicio, mesFin };
+  return sequelize.query(sql, {
+    replacements,
+    type: QueryTypes.SELECT,
+  });
 }
 
 export const getResumenInformes = async (req, res) => {
   try {
-    const { whereSql, repl, categoria, entrenador, anio, linea, mesInicio, mesFin } = buildListWhere(req.query);
+    const { repl, inscClauses, outerClauses } = buildAdminInscripcionesFilters(req.query);
+    const fromSql = buildAdminInscripcionesFromSql();
+    const whereSql = `${inscClauses.join(' AND ')} AND ${outerClauses.join(' AND ')}`;
+
     const [rowResumen] = await sequelize.query(
       `SELECT
          COUNT(*) AS totalEvaluaciones,
-         SUM(CASE WHEN (e.informe IS NOT NULL AND TRIM(e.informe) <> '') THEN 1 ELSE 0 END) AS conInforme,
-         SUM(CASE WHEN (e.informe IS NULL OR TRIM(e.informe) = '') THEN 1 ELSE 0 END) AS sinInforme,
-         SUM(CASE WHEN e.enviado = 1 THEN 1 ELSE 0 END) AS enviados
-       FROM evaluaciones e
+         SUM(CASE WHEN (ev.informe IS NOT NULL AND TRIM(ev.informe) <> '') THEN 1 ELSE 0 END) AS conInforme,
+         SUM(CASE WHEN (ev.id IS NULL OR ev.informe IS NULL OR TRIM(ev.informe) = '') THEN 1 ELSE 0 END) AS sinInforme,
+         SUM(CASE WHEN ev.enviado = 1 THEN 1 ELSE 0 END) AS enviados
+       ${fromSql}
        WHERE ${whereSql}`,
       {
-        replacements: [...repl],
+        replacements: repl,
         type: QueryTypes.SELECT,
       },
     );
@@ -112,70 +256,12 @@ export const getResumenInformes = async (req, res) => {
     const sinInforme = Number(rowResumen?.sinInforme ?? 0);
     const enviados = Number(rowResumen?.enviados ?? 0);
 
-    const { anio: anioActualBogota } = anioMesBogota();
-    const anioRef = /^\d{4}$/.test(anio) ? Number(anio) : anioActualBogota;
-    const replSinInformeMes = { anio: anioRef, mesInicio, mesFin };
-    const extraClauses = [];
-    if (categoria) {
-      extraClauses.push('AND TRIM(i.IDCurso) = :categoria');
-      replSinInformeMes.categoria = categoria;
-    }
-    if (entrenador) {
-      extraClauses.push(
-        `AND EXISTS (
-          SELECT 1 FROM detalle_evaluacion d
-          INNER JOIN evaluaciones ev ON ev.id = d.id_evaluacion
-          WHERE TRIM(ev.identificacion) = TRIM(i.validador_participante)
-            AND TRIM(ev.categoria) = TRIM(i.IDCurso)
-            AND YEAR(ev.fecha_creacion) = :anio
-            AND MONTH(ev.fecha_creacion) BETWEEN :mesInicio AND :mesFin
-            AND TRIM(d.responsable) = :entrenador
-        )`,
-      );
-      replSinInformeMes.entrenador = entrenador;
-    }
-    if (linea) {
-      extraClauses.push(
-        `AND EXISTS (
-          SELECT 1 FROM cursos_2025 c
-          LEFT JOIN linea l ON l.IDLinea = c.Linea
-          WHERE TRIM(c.ID_Curso) = TRIM(i.IDCurso)
-            AND TRIM(l.Nombre_Linea) = :linea
-        )`,
-      );
-      replSinInformeMes.linea = linea;
-    }
-
-    const [row] = await sequelize.query(
-      `SELECT COUNT(*) AS c
-       FROM (
-         SELECT DISTINCT TRIM(i.validador_participante) AS identificacion, TRIM(i.IDCurso) AS categoria
-         FROM ${inscripcionesValidasPeriodoSubquery()} i
-         LEFT JOIN evaluaciones e
-           ON TRIM(e.identificacion) = TRIM(i.validador_participante)
-          AND TRIM(e.categoria) = TRIM(i.IDCurso)
-          AND e.informe IS NOT NULL
-          AND TRIM(e.informe) <> ''
-          AND YEAR(e.fecha_creacion) = :anio
-          AND MONTH(e.fecha_creacion) BETWEEN :mesInicio AND :mesFin
-         LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(i.IDCurso)
-         LEFT JOIN linea l ON l.IDLinea = c.Linea
-         WHERE e.id IS NULL
-         ${extraClauses.join('\n')}
-       ) sin_informe`,
-      {
-        replacements: replSinInformeMes,
-        type: QueryTypes.SELECT,
-      },
-    );
-    const participantesSinInformePeriodo = Number(row?.c ?? 0);
-
     return sendSuccess(res, 200, {
       totalEvaluaciones,
       conInforme,
       sinInforme,
       enviados,
-      participantesSinInformePeriodo,
+      participantesSinInformePeriodo: sinInforme,
     });
   } catch (error) {
     return sendError(res, 500, 'Error al obtener resumen de informes', error.message);
@@ -234,47 +320,21 @@ export const listarInformesAdmin = async (req, res) => {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 25));
     const offset = (page - 1) * limit;
 
-    const { whereSql, repl } = buildListWhere(req.query);
+    const { repl, inscClauses, outerClauses } = buildAdminInscripcionesFilters(req.query);
+    const fromSql = buildAdminInscripcionesFromSql();
+    const whereSql = `${inscClauses.join(' AND ')} AND ${outerClauses.join(' AND ')}`;
 
-    const countRows = await sequelize.query(`SELECT COUNT(*) AS c FROM evaluaciones e WHERE ${whereSql}`, {
-      replacements: [...repl],
-      type: QueryTypes.SELECT,
-    });
-    const total = Number(countRows[0]?.c ?? 0);
-
-    const rows = await sequelize.query(
-      `SELECT e.id, e.participante, e.identificacion, e.categoria, e.nombreCategoria, e.informe,
-              e.enviado, e.fechaEnvio, e.fecha_creacion, e.fecha_modificacion,
-              d.entrenador
-       FROM evaluaciones e
-       LEFT JOIN (
-         SELECT id_evaluacion, MIN(TRIM(responsable)) AS entrenador
-         FROM detalle_evaluacion
-         WHERE responsable IS NOT NULL AND TRIM(responsable) <> ''
-         GROUP BY id_evaluacion
-       ) d ON d.id_evaluacion = e.id
-       WHERE ${whereSql}
-       ORDER BY e.fecha_creacion DESC
-       LIMIT ? OFFSET ?`,
+    const countRows = await sequelize.query(
+      `SELECT COUNT(*) AS c ${fromSql} WHERE ${whereSql}`,
       {
-        replacements: [...repl, limit, offset],
+        replacements: repl,
         type: QueryTypes.SELECT,
       },
     );
+    const total = Number(countRows[0]?.c ?? 0);
 
-    const evaluaciones = rows.map((r) => ({
-      id: r.id,
-      participante: r.participante,
-      identificacion: r.identificacion,
-      categoria: r.categoria,
-      nombreCategoria: r.nombreCategoria,
-      informe: r.informe,
-      enviado: Boolean(r.enviado),
-      fechaEnvio: r.fechaEnvio,
-      fecha_creacion: r.fecha_creacion,
-      fecha_modificacion: r.fecha_modificacion,
-      entrenador: r.entrenador || null,
-    }));
+    const rows = await queryAdminInformesRows(req.query, { limit, offset, forExport: false });
+    const evaluaciones = rows.map(mapAdminInformeRow);
 
     return sendSuccess(res, 200, {
       evaluaciones,
@@ -284,6 +344,21 @@ export const listarInformesAdmin = async (req, res) => {
     });
   } catch (error) {
     return sendError(res, 500, 'Error al listar informes', error.message);
+  }
+};
+
+export const exportarInformesAdmin = async (req, res) => {
+  try {
+    const max = Math.min(50_000, Math.max(1, Number(req.query.max) || 50_000));
+    const rows = await queryAdminInformesRows(req.query, { limit: max, offset: 0, forExport: true });
+    const evaluaciones = rows.map(mapAdminInformeRow);
+
+    return sendSuccess(res, 200, {
+      evaluaciones,
+      total: evaluaciones.length,
+    });
+  } catch (error) {
+    return sendError(res, 500, 'Error al exportar informes', error.message);
   }
 };
 
