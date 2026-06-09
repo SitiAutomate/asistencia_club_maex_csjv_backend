@@ -9,6 +9,7 @@ import {
   resolveInformeAbsolutePath,
   sendEvaluacionInformeEmail,
 } from './evaluacionEmail.js';
+import { nowColombiaSqlDatetime } from './fechaColombia.js';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 45_000;
@@ -148,12 +149,12 @@ async function processOneJob() {
       attachmentPath,
     });
 
-    const fecha = now();
+    const fecha = nowColombiaSqlDatetime();
     await Evaluaciones.update(
       {
         enviado: true,
         fechaEnvio: fecha,
-        fecha_modificacion: fecha,
+        fecha_modificacion: now(),
       },
       { where: { id: currentJob.evaluacion_id } },
     );

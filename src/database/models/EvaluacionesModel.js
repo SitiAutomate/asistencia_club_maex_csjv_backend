@@ -38,6 +38,7 @@ Evaluaciones.init(
         },
         fechaEnvio: {
             type: DataTypes.DATE,
+            comment: 'Fecha y hora de envío (hora Colombia, columna DATETIME en MySQL)',
         },
         enviado: {
             type: DataTypes.BOOLEAN,

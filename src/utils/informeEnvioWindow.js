@@ -3,9 +3,12 @@ export function fechaHoyColombia() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
 }
 
-/** Convierte un Date/ISO a YYYY-MM-DD en America/Bogota. */
+/** Convierte un valor de BD/Date/ISO a YYYY-MM-DD en calendario Colombia. */
 export function ymdColombiaDesdeDate(input) {
   if (input == null) return null;
+  const raw = String(input).trim();
+  const datePart = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (datePart) return datePart[1];
   const d = input instanceof Date ? input : new Date(input);
   if (Number.isNaN(d.getTime())) return null;
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(d);

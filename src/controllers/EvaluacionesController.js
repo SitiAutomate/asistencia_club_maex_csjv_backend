@@ -5,11 +5,6 @@ import Rubricas from '../database/models/RubricasModel.js';
 import Usuarios from '../database/models/UsuariosModel.js';
 import Cursos from '../database/models/CursosModel.js';
 import Entrenadores from '../database/models/EntrenadoresModel.js';
-import Inscripciones from '../database/models/InscripcionesModel.js';
-import Participantes from '../database/models/ParticipantesModel.js';
-import Padres from '../database/models/PadresModel.js';
-import Responsable from '../database/models/ResponsableModel.js';
-import { Op, fn, col, where } from 'sequelize';
 import { sequelize } from '../database/sequelize.js';
 import { env } from '../config/env.js';
 import {
@@ -31,6 +26,8 @@ import {
 } from '../utils/informeEnvioWindow.js';
 import { enqueueInformeEmailJob } from '../utils/informeEmailQueue.js';
 import { normalizeMultilineText } from '../utils/textNormalize.js';
+import { resolveCorreosFamiliaInforme } from '../utils/evaluacionCorreosFamilia.js';
+import { Op, fn, col, where } from 'sequelize';
 
 export const crearEvaluacion = async (req, res) => {
   try {
@@ -84,8 +81,6 @@ export const crearEvaluacion = async (req, res) => {
       categoria,
       nombreCategoria,
       comentario,
-      fechaEnvio,
-      enviado,
       curso_recomendado,
     } = req.body;
     const comentarioLimpio = normalizeMultilineText(comentario);
@@ -140,8 +135,6 @@ export const crearEvaluacion = async (req, res) => {
             categoria: categoriaKey,
             nombreCategoria,
             comentario: comentarioLimpio,
-            fechaEnvio,
-            enviado,
             curso_recomendado,
           },
           { transaction },
@@ -162,8 +155,8 @@ export const crearEvaluacion = async (req, res) => {
             fecha_creacion: fechaCreacion,
             nombreCategoria,
             comentario: comentarioLimpio,
-            fechaEnvio,
-            enviado,
+            enviado: false,
+            fechaEnvio: null,
             curso_recomendado,
           },
           { transaction },
@@ -299,6 +292,20 @@ export const crearEvaluacion = async (req, res) => {
   }
 };
 
+export const obtenerCorreosFamiliaParticipante = async (req, res) => {
+  try {
+    const identificacion =
+      req.params.identificacion != null ? String(req.params.identificacion).trim() : '';
+    if (!identificacion) {
+      return sendError(res, 400, 'Identificacion requerida');
+    }
+    const correos = await resolveCorreosFamiliaInforme(identificacion);
+    return sendSuccess(res, 200, { correos }, 'Correos de familia obtenidos');
+  } catch (error) {
+    return sendError(res, 500, 'Error al obtener correos de familia', error.message);
+  }
+};
+
 export const obtenerEvaluacionParticipante = async (req, res) => {
   try {
     const identificacion =
@@ -335,62 +342,7 @@ export const obtenerEvaluacionParticipante = async (req, res) => {
   }
 };
 
-const correoDestinoValido = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
-
-const normalizarCorreo = (value) => String(value || '').trim().toLowerCase();
-
-const correosFamiliaFromInscrito = (inscrito) => {
-  const participante = inscrito?.participante || {};
-  const padreInfo = participante?.padreInfo || {};
-  const responsableInfo = participante?.responsableInfo || {};
-  const raw = [padreInfo?.emailPadre, padreInfo?.emailMadre, responsableInfo?.Correo_Responsable]
-    .map(normalizarCorreo)
-    .filter(Boolean)
-    .filter(correoDestinoValido);
-  return [...new Set(raw)];
-};
-
-const resolveDestinatariosFamiliaInforme = async (identificacion) => {
-  const inscrito = await obtenerInscritoParaCorreos(identificacion);
-  return correosFamiliaFromInscrito(inscrito);
-};
-
-const obtenerInscritoParaCorreos = async (identificacion) => {
-  const ident = String(identificacion || '').trim();
-  if (!ident) return null;
-  return Inscripciones.findOne({
-    where: {
-      validador_participante: ident,
-      Tipo: 1,
-    },
-    order: [
-      ['año', 'DESC'],
-      ['Mes', 'DESC'],
-    ],
-    include: [
-      {
-        model: Participantes,
-        as: 'participante',
-        attributes: ['idParticipante', 'responsable'],
-        required: false,
-        include: [
-          {
-            model: Padres,
-            as: 'padreInfo',
-            attributes: ['emailPadre', 'emailMadre'],
-            required: false,
-          },
-          {
-            model: Responsable,
-            as: 'responsableInfo',
-            attributes: ['Correo_Responsable'],
-            required: false,
-          },
-        ],
-      },
-    ],
-  });
-};
+const resolveDestinatariosFamiliaInforme = resolveCorreosFamiliaInforme;
 
 const resolveEntrenadorNombreDesdeCurso = async ({ categoria, transaction }) => {
   const categoriaKey = String(categoria || '').trim();

@@ -4,6 +4,7 @@ import {
   crearEvaluacion,
   enviarEvaluacion,
   getVentanaInformeEnvio,
+  obtenerCorreosFamiliaParticipante,
   obtenerEvaluacionParticipante,
 } from '../controllers/EvaluacionesController.js';
 import { uploadEvaluacionFoto } from '../middlewares/uploadEvaluacion.js';
@@ -22,6 +23,8 @@ router.post(
 );
 
 router.get('/participante/:identificacion', obtenerEvaluacionParticipante);
+
+router.get('/correos-familia/:identificacion', obtenerCorreosFamiliaParticipante);
 
 router.get('/ventana-envio', getVentanaInformeEnvio);
 

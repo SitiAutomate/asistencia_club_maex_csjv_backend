@@ -147,18 +147,22 @@ export const getResumenInformes = async (req, res) => {
     }
 
     const [row] = await sequelize.query(
-      `SELECT COUNT(DISTINCT CONCAT(TRIM(i.validador_participante), '__', TRIM(i.IDCurso))) AS c
-       FROM ${inscripcionesValidasPeriodoSubquery()} i
-       WHERE 1=1
-       ${extraClauses.join('\n')}
-       AND NOT EXISTS (
-         SELECT 1 FROM evaluaciones e
-         WHERE TRIM(e.identificacion) = TRIM(i.validador_participante)
-         AND TRIM(e.categoria) = TRIM(i.IDCurso)
-         AND e.informe IS NOT NULL
-         AND YEAR(e.fecha_creacion) = :anio
-         AND MONTH(e.fecha_creacion) BETWEEN :mesInicio AND :mesFin
-       )`,
+      `SELECT COUNT(*) AS c
+       FROM (
+         SELECT DISTINCT TRIM(i.validador_participante) AS identificacion, TRIM(i.IDCurso) AS categoria
+         FROM ${inscripcionesValidasPeriodoSubquery()} i
+         LEFT JOIN evaluaciones e
+           ON TRIM(e.identificacion) = TRIM(i.validador_participante)
+          AND TRIM(e.categoria) = TRIM(i.IDCurso)
+          AND e.informe IS NOT NULL
+          AND TRIM(e.informe) <> ''
+          AND YEAR(e.fecha_creacion) = :anio
+          AND MONTH(e.fecha_creacion) BETWEEN :mesInicio AND :mesFin
+         LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(i.IDCurso)
+         LEFT JOIN linea l ON l.IDLinea = c.Linea
+         WHERE e.id IS NULL
+         ${extraClauses.join('\n')}
+       ) sin_informe`,
       {
         replacements: replSinInformeMes,
         type: QueryTypes.SELECT,
@@ -241,8 +245,14 @@ export const listarInformesAdmin = async (req, res) => {
     const rows = await sequelize.query(
       `SELECT e.id, e.participante, e.identificacion, e.categoria, e.nombreCategoria, e.informe,
               e.enviado, e.fechaEnvio, e.fecha_creacion, e.fecha_modificacion,
-              (SELECT MIN(TRIM(d.responsable)) FROM detalle_evaluacion d WHERE d.id_evaluacion = e.id) AS entrenador
+              d.entrenador
        FROM evaluaciones e
+       LEFT JOIN (
+         SELECT id_evaluacion, MIN(TRIM(responsable)) AS entrenador
+         FROM detalle_evaluacion
+         WHERE responsable IS NOT NULL AND TRIM(responsable) <> ''
+         GROUP BY id_evaluacion
+       ) d ON d.id_evaluacion = e.id
        WHERE ${whereSql}
        ORDER BY e.fecha_creacion DESC
        LIMIT ? OFFSET ?`,
@@ -310,50 +320,41 @@ export const getGraficoCategoriasInformes = async (req, res) => {
       repl.linea = linea;
     }
 
-    const evalClauses = [
-      'TRIM(e.identificacion) = TRIM(iu.validador_participante)',
-      'TRIM(e.categoria) = TRIM(iu.IDCurso)',
+    const evalWhere = [
       "e.informe IS NOT NULL AND TRIM(e.informe) <> ''",
       'YEAR(e.fecha_creacion) = :anio',
     ];
-
     if (fechaInicio && fechaFin) {
       const ini = new Date(`${fechaInicio}T00:00:00`);
       const fin = new Date(`${fechaFin}T23:59:59.999`);
       if (!Number.isNaN(ini.getTime()) && !Number.isNaN(fin.getTime())) {
-        evalClauses.push('e.fecha_creacion BETWEEN :fechaInicio AND :fechaFin');
+        evalWhere.push('e.fecha_creacion BETWEEN :fechaInicio AND :fechaFin');
         repl.fechaInicio = ini;
         repl.fechaFin = fin;
       }
     } else if (fechaInicio) {
       const ini = new Date(`${fechaInicio}T00:00:00`);
       if (!Number.isNaN(ini.getTime())) {
-        evalClauses.push('e.fecha_creacion >= :fechaInicio');
+        evalWhere.push('e.fecha_creacion >= :fechaInicio');
         repl.fechaInicio = ini;
       }
     } else if (fechaFin) {
       const fin = new Date(`${fechaFin}T23:59:59.999`);
       if (!Number.isNaN(fin.getTime())) {
-        evalClauses.push('e.fecha_creacion <= :fechaFin');
+        evalWhere.push('e.fecha_creacion <= :fechaFin');
         repl.fechaFin = fin;
       }
-    } else if (!fechaInicio) {
-      evalClauses.push('MONTH(e.fecha_creacion) BETWEEN :mesInicio AND :mesFin');
+    } else {
+      evalWhere.push('MONTH(e.fecha_creacion) BETWEEN :mesInicio AND :mesFin');
     }
 
+    let evalEntrenadorJoin = '';
     if (entrenador) {
-      evalClauses.push(
-        `EXISTS (
-           SELECT 1
-           FROM detalle_evaluacion d
-           WHERE d.id_evaluacion = e.id
-             AND TRIM(d.responsable) = :entrenador
-         )`,
-      );
+      evalEntrenadorJoin = `
+        INNER JOIN detalle_evaluacion d_f ON d_f.id_evaluacion = e.id
+          AND TRIM(d_f.responsable) = :entrenador`;
       repl.entrenador = entrenador;
     }
-
-    const evalExisteSql = evalClauses.join(' AND ');
 
     const rows = await sequelize.query(
       `SELECT
@@ -363,25 +364,23 @@ export const getGraficoCategoriasInformes = async (req, res) => {
            TRIM(iu.IDCurso),
            'Sin categoría'
          ) AS categoria,
-         SUM(
-           CASE WHEN EXISTS (
-             SELECT 1
-             FROM evaluaciones e
-             WHERE ${evalExisteSql}
-               AND e.enviado = 1
-           ) THEN 1 ELSE 0 END
-         ) AS enviados,
-        SUM(
-          CASE WHEN EXISTS (
-            SELECT 1
-            FROM evaluaciones e
-            WHERE ${evalExisteSql}
-              AND e.enviado = 1
-          ) THEN 0 ELSE 1 END
-        ) AS noEnviados,
+         SUM(CASE WHEN COALESCE(ev.tiene_enviado, 0) = 1 THEN 1 ELSE 0 END) AS enviados,
+         SUM(CASE WHEN COALESCE(ev.tiene_enviado, 0) = 1 THEN 0 ELSE 1 END) AS noEnviados,
          COUNT(*) AS total
        FROM ${inscripcionesValidasPeriodoSubquery()} iu
        LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(iu.IDCurso)
+       LEFT JOIN (
+         SELECT
+           TRIM(e.identificacion) AS identificacion,
+           TRIM(e.categoria) AS categoria,
+           MAX(CASE WHEN e.enviado = 1 THEN 1 ELSE 0 END) AS tiene_enviado
+         FROM evaluaciones e
+         ${evalEntrenadorJoin}
+         WHERE ${evalWhere.join(' AND ')}
+         GROUP BY TRIM(e.identificacion), TRIM(e.categoria)
+       ) ev
+         ON TRIM(ev.identificacion) = TRIM(iu.validador_participante)
+        AND TRIM(ev.categoria) = TRIM(iu.IDCurso)
        WHERE ${inscClauses.join(' AND ')}
        GROUP BY COALESCE(
          NULLIF(TRIM(c.Nombre_Corto_Curso), ''),
