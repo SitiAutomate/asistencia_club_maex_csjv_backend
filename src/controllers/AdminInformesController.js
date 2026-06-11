@@ -8,7 +8,8 @@ import {
   inscripcionesValidasPeriodoSubquery,
 } from '../utils/inscripcionesPeriodo.js';
 
-const evalRecienteEnPeriodoSubquery = () => `(
+/** Evaluación más reciente del año por participante+categoría (sin filtrar mes de creación). */
+const evalRecienteAnioSubquery = () => `(
   SELECT
     e.id,
     e.participante,
@@ -28,14 +29,12 @@ const evalRecienteEnPeriodoSubquery = () => `(
       MAX(fecha_creacion) AS max_fecha
     FROM evaluaciones
     WHERE YEAR(fecha_creacion) = :anio
-      AND MONTH(fecha_creacion) BETWEEN :mesInicio AND :mesFin
     GROUP BY TRIM(identificacion), TRIM(categoria)
   ) mx
     ON TRIM(e.identificacion) = mx.identificacion
    AND TRIM(e.categoria) = mx.categoria
    AND e.fecha_creacion = mx.max_fecha
   WHERE YEAR(e.fecha_creacion) = :anio
-    AND MONTH(e.fecha_creacion) BETWEEN :mesInicio AND :mesFin
 )`;
 
 function buildAdminInscripcionesFilters(query) {
@@ -138,7 +137,7 @@ function buildAdminInscripcionesFromSql() {
     FROM ${inscripcionesValidasPeriodoSubquery()} iu
     LEFT JOIN participantes p ON TRIM(p.IDParticipante) = TRIM(iu.validador_participante)
     LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(iu.IDCurso)
-    LEFT JOIN ${evalRecienteEnPeriodoSubquery()} ev
+    LEFT JOIN ${evalRecienteAnioSubquery()} ev
       ON TRIM(ev.identificacion) = TRIM(iu.validador_participante)
      AND TRIM(ev.categoria) = TRIM(iu.IDCurso)
     LEFT JOIN (
@@ -364,72 +363,9 @@ export const exportarInformesAdmin = async (req, res) => {
 
 export const getGraficoCategoriasInformes = async (req, res) => {
   try {
-    const categoria = req.query.categoria ? String(req.query.categoria).trim() : '';
-    const entrenador = req.query.entrenador ? String(req.query.entrenador).trim() : '';
-    const linea = req.query.linea ? String(req.query.linea).trim() : '';
-    const fechaInicio = req.query.fechaInicio ? String(req.query.fechaInicio).trim() : '';
-    const fechaFin = req.query.fechaFin ? String(req.query.fechaFin).trim() : '';
-    const anioFiltro = req.query.anio ? String(req.query.anio).trim() : '';
-    const { anio: anioActualBogota, mesNum: mesActualBogota } = anioMesBogota();
-    const anio = /^\d{4}$/.test(anioFiltro) ? Number(anioFiltro) : anioActualBogota;
-    const periodo = req.query.periodo ? String(req.query.periodo).trim() : '';
-    const periodoNormalizado =
-      periodo === 'ene_jul' || periodo === 'ago_dic' ? periodo : getPeriodoDefault(mesActualBogota);
-    const { mesInicio, mesFin } = getPeriodoMonths(periodoNormalizado, mesActualBogota);
-
-    const repl = { anio, mesInicio, mesFin };
-    const inscClauses = ['1=1'];
-    if (categoria) {
-      inscClauses.push('TRIM(iu.IDCurso) = :categoria');
-      repl.categoria = categoria;
-    }
-    if (linea) {
-      inscClauses.push(
-        `EXISTS (
-           SELECT 1 FROM cursos_2025 cx
-           LEFT JOIN linea lx ON lx.IDLinea = cx.Linea
-           WHERE TRIM(cx.ID_Curso) = TRIM(iu.IDCurso)
-             AND TRIM(lx.Nombre_Linea) = :linea
-         )`,
-      );
-      repl.linea = linea;
-    }
-
-    const evalWhere = [
-      "e.informe IS NOT NULL AND TRIM(e.informe) <> ''",
-      'YEAR(e.fecha_creacion) = :anio',
-    ];
-    if (fechaInicio && fechaFin) {
-      const ini = new Date(`${fechaInicio}T00:00:00`);
-      const fin = new Date(`${fechaFin}T23:59:59.999`);
-      if (!Number.isNaN(ini.getTime()) && !Number.isNaN(fin.getTime())) {
-        evalWhere.push('e.fecha_creacion BETWEEN :fechaInicio AND :fechaFin');
-        repl.fechaInicio = ini;
-        repl.fechaFin = fin;
-      }
-    } else if (fechaInicio) {
-      const ini = new Date(`${fechaInicio}T00:00:00`);
-      if (!Number.isNaN(ini.getTime())) {
-        evalWhere.push('e.fecha_creacion >= :fechaInicio');
-        repl.fechaInicio = ini;
-      }
-    } else if (fechaFin) {
-      const fin = new Date(`${fechaFin}T23:59:59.999`);
-      if (!Number.isNaN(fin.getTime())) {
-        evalWhere.push('e.fecha_creacion <= :fechaFin');
-        repl.fechaFin = fin;
-      }
-    } else {
-      evalWhere.push('MONTH(e.fecha_creacion) BETWEEN :mesInicio AND :mesFin');
-    }
-
-    let evalEntrenadorJoin = '';
-    if (entrenador) {
-      evalEntrenadorJoin = `
-        INNER JOIN detalle_evaluacion d_f ON d_f.id_evaluacion = e.id
-          AND TRIM(d_f.responsable) = :entrenador`;
-      repl.entrenador = entrenador;
-    }
+    const { repl, inscClauses, outerClauses } = buildAdminInscripcionesFilters(req.query);
+    const fromSql = buildAdminInscripcionesFromSql();
+    const whereSql = `${inscClauses.join(' AND ')} AND ${outerClauses.join(' AND ')}`;
 
     const rows = await sequelize.query(
       `SELECT
@@ -439,24 +375,11 @@ export const getGraficoCategoriasInformes = async (req, res) => {
            TRIM(iu.IDCurso),
            'Sin categoría'
          ) AS categoria,
-         SUM(CASE WHEN COALESCE(ev.tiene_enviado, 0) = 1 THEN 1 ELSE 0 END) AS enviados,
-         SUM(CASE WHEN COALESCE(ev.tiene_enviado, 0) = 1 THEN 0 ELSE 1 END) AS noEnviados,
+         SUM(CASE WHEN ev.enviado = 1 THEN 1 ELSE 0 END) AS enviados,
+         SUM(CASE WHEN COALESCE(ev.enviado, 0) <> 1 THEN 1 ELSE 0 END) AS noEnviados,
          COUNT(*) AS total
-       FROM ${inscripcionesValidasPeriodoSubquery()} iu
-       LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(iu.IDCurso)
-       LEFT JOIN (
-         SELECT
-           TRIM(e.identificacion) AS identificacion,
-           TRIM(e.categoria) AS categoria,
-           MAX(CASE WHEN e.enviado = 1 THEN 1 ELSE 0 END) AS tiene_enviado
-         FROM evaluaciones e
-         ${evalEntrenadorJoin}
-         WHERE ${evalWhere.join(' AND ')}
-         GROUP BY TRIM(e.identificacion), TRIM(e.categoria)
-       ) ev
-         ON TRIM(ev.identificacion) = TRIM(iu.validador_participante)
-        AND TRIM(ev.categoria) = TRIM(iu.IDCurso)
-       WHERE ${inscClauses.join(' AND ')}
+       ${fromSql}
+       WHERE ${whereSql}
        GROUP BY COALESCE(
          NULLIF(TRIM(c.Nombre_Corto_Curso), ''),
          NULLIF(TRIM(c.Nombre_del_curso), ''),
