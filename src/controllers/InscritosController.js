@@ -9,6 +9,7 @@ import { sequelize } from '../database/sequelize.js';
 import { enriquecerConRutaExtra } from '../utils/rutaSegura.js';
 import {
   ESTADOS_INFORME_INSCRIPCION,
+  getPeriodosInformesConfig,
   inscripcionesValidasPeriodoSubquery,
   resolvePeriodoFiltro,
 } from '../utils/inscripcionesPeriodo.js';
@@ -128,6 +129,14 @@ const obtenerInscritosPeriodo = async (req, res) => {
     },
     'Inscritos del periodo obtenidos correctamente',
   );
+};
+
+export const obtenerConfigPeriodoInformes = async (_req, res) => {
+  try {
+    return sendSuccess(res, 200, getPeriodosInformesConfig(), 'Configuración de periodos obtenida');
+  } catch (error) {
+    return sendError(res, 500, 'Error al obtener configuración de periodos', error.message);
+  }
 };
 
 export const obtenerInscritosReportes = async (req, res) => {

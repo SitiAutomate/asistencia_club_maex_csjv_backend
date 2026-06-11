@@ -15,6 +15,12 @@ const decodeIfUrlEncoded = (value) => {
   }
 };
 
+const parseMesInformes = (value, fallback) => {
+  const n = Number(String(value ?? '').trim());
+  if (!Number.isInteger(n) || n < 1 || n > 12) return fallback;
+  return n;
+};
+
 const informeEnvioHabilitadoRaw = process.env.INFORME_ENVIO_HABILITADO;
 const informeEnvioHabilitadoClean =
   informeEnvioHabilitadoRaw == null
@@ -34,6 +40,13 @@ export const env = {
     logoPath: process.env.EVALUACION_LOGO_PATH || '',
     logoMaexPath: process.env.EVALUACION_LOGO_MAEX_PATH || '',
     fotoMaxBytes: Math.max(1, Number(process.env.EVALUACION_FOTO_MAX_MB) || 20) * 1024 * 1024,
+  },
+  /** Mes de inscripción/evaluación por periodo de informes (ids ene_jul / ago_dic). */
+  informesPeriodo: {
+    periodo1Mes: parseMesInformes(process.env.INFORMES_PERIODO_1_MES, 6),
+    periodo2Mes: parseMesInformes(process.env.INFORMES_PERIODO_2_MES, 11),
+    periodo1Etiqueta: String(process.env.INFORMES_PERIODO_1_ETIQUETA || '').trim(),
+    periodo2Etiqueta: String(process.env.INFORMES_PERIODO_2_ETIQUETA || '').trim(),
   },
   /** Ventana para enviar informes por correo (fecha según America/Bogota). */
   informeEnvio: {

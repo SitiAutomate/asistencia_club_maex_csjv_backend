@@ -1,6 +1,29 @@
+import { env } from '../config/env.js';
+
 export const ESTADOS_INFORME_INSCRIPCION = ['CONFIRMADO', 'ACTIVO', 'INCAPACITADO'];
 
 export const ESTADOS_INFORME_INSCRIPCION_SQL = "('CONFIRMADO', 'ACTIVO', 'INCAPACITADO')";
+
+const NOMBRES_MES = [
+  '',
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+];
+
+export function nombreMesInformes(mes) {
+  const n = Number(mes);
+  return NOMBRES_MES[n] || `Mes ${n}`;
+}
 
 export function anioMesBogota() {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -14,14 +37,17 @@ export function anioMesBogota() {
 }
 
 export function getPeriodoDefault(mesNum) {
-  return Number(mesNum) <= 7 ? 'ene_jul' : 'ago_dic';
+  const mesPeriodo2 = env.informesPeriodo.periodo2Mes;
+  return Number(mesNum) >= mesPeriodo2 ? 'ago_dic' : 'ene_jul';
 }
 
 export function getPeriodoMonths(periodo, mesActual) {
-  if (periodo === 'ene_jul') return { mesInicio: 5, mesFin: 7 };
-  if (periodo === 'ago_dic') return { mesInicio: 10, mesFin: 12 };
+  const mesPeriodo1 = env.informesPeriodo.periodo1Mes;
+  const mesPeriodo2 = env.informesPeriodo.periodo2Mes;
+  if (periodo === 'ene_jul') return { mesInicio: mesPeriodo1, mesFin: mesPeriodo1 };
+  if (periodo === 'ago_dic') return { mesInicio: mesPeriodo2, mesFin: mesPeriodo2 };
   const def = getPeriodoDefault(mesActual);
-  return def === 'ene_jul' ? { mesInicio: 5, mesFin: 7 } : { mesInicio: 10, mesFin: 12 };
+  return getPeriodoMonths(def, mesActual);
 }
 
 export function resolvePeriodoFiltro({ periodo, anio } = {}) {
@@ -33,8 +59,36 @@ export function resolvePeriodoFiltro({ periodo, anio } = {}) {
   return { periodo: periodoNorm, anio: anioRef, mesInicio, mesFin };
 }
 
+export function getPeriodosInformesConfig() {
+  const { mesNum } = anioMesBogota();
+  const mesPeriodo1 = env.informesPeriodo.periodo1Mes;
+  const mesPeriodo2 = env.informesPeriodo.periodo2Mes;
+  const etiqueta1 = env.informesPeriodo.periodo1Etiqueta || nombreMesInformes(mesPeriodo1);
+  const etiqueta2 = env.informesPeriodo.periodo2Etiqueta || nombreMesInformes(mesPeriodo2);
+
+  return {
+    periodos: [
+      {
+        id: 'ene_jul',
+        mes: mesPeriodo1,
+        mesInicio: mesPeriodo1,
+        mesFin: mesPeriodo1,
+        etiqueta: etiqueta1,
+      },
+      {
+        id: 'ago_dic',
+        mes: mesPeriodo2,
+        mesInicio: mesPeriodo2,
+        mesFin: mesPeriodo2,
+        etiqueta: etiqueta2,
+      },
+    ],
+    periodoActual: getPeriodoDefault(mesNum),
+  };
+}
+
 /**
- * Un registro por participante+curso: el mes más reciente del periodo en que tuvo
+ * Un registro por participante+curso: el mes del periodo en que tuvo
  * estado CONFIRMADO, ACTIVO o INCAPACITADO (aunque en meses posteriores esté RETIRADO).
  */
 export function inscripcionesValidasPeriodoSubquery() {
