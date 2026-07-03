@@ -39,14 +39,14 @@ Error:
 
 | Tipo | Header | Uso |
 |------|--------|-----|
-| JWT sesión | `Authorization: Bearer <token>` | Rutas de asistencia, rúbricas, evaluaciones, admin |
+| JWT sesión | `Authorization: Bearer <token>` | Rutas de asistencia, rúbricas, evaluaciones, inscritos, cursos, admin, uploads |
 | Token fijo | `Authorization: Bearer <BEARERINS>` | `/api/integracion-club/*` |
 
 ### Roles en rutas protegidas
 
 | Rutas | Roles permitidos |
 |-------|------------------|
-| `/api/asistencia`, `/api/rubricas`, `/api/evaluaciones` | Administrador, Entrenador, Proveedor |
+| `/api/asistencia`, `/api/rubricas`, `/api/evaluaciones`, `/api/inscritos`, `/api/cursos` | Administrador, Entrenador, Proveedor |
 | `/api/admin/*` | Solo Administrador |
 | `/api-docs` | Solo Desarrollador |
 
@@ -67,8 +67,8 @@ Error:
 | POST | `/register` | No | Registro proveedor |
 | POST | `/login` | No | Login proveedor / desarrollador |
 | GET/POST | `/verify-email` | No | Confirmar cuenta |
-| GET | `/microsoft/url` | No | URL OAuth Microsoft |
-| POST | `/microsoft/token` | No | Intercambiar code por JWT |
+| GET | `/microsoft/url` | No | URL OAuth Microsoft (incluye `state`) |
+| POST | `/microsoft/token` | No | Intercambiar code + state por JWT |
 | POST | `/forgot-password` | No | Solicitar reset |
 | POST/GET | `/reset-password` | No | Nueva contraseña |
 | GET | `/me` | JWT | Perfil actual |
@@ -77,9 +77,9 @@ Error:
 
 | Método | Ruta | Auth | Descripción |
 |--------|------|------|-------------|
-| GET | `/api/inscritos` | No | Inscritos (query: `idCurso`, `estado`, `lite`, `withRutaExtra`) |
-| GET | `/api/cursos` | No | Cursos (query: `correo`, `soloMisCursos`, `scopeAll`) |
-| GET | `/api/cursos/docente/:correo` | No | Cursos por docente |
+| GET | `/api/inscritos` | JWT | Inscritos (query: `idCurso`, `estado`, `lite`, `withRutaExtra`) |
+| GET | `/api/cursos` | JWT | Cursos (query: `correo`, `soloMisCursos`, `scope=all` solo Admin) |
+| GET | `/api/cursos/docente/:correo` | JWT | Cursos por docente (solo propio correo salvo Admin) |
 
 ### Asistencia (`/api/asistencia`)
 
@@ -128,5 +128,5 @@ Filtros comunes: `fechaInicio`, `fechaFin`, `anio`, `categoria`, `entrenador`, `
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | GET | `/callback-microsoft` | Redirect OAuth → frontend |
-| GET | `/uploads/*` | Archivos estáticos |
+| GET | `/api/uploads/*` | JWT | Fotos e informes (reemplaza `/uploads` público) |
 | GET | `/api-docs` | Swagger (Desarrollador) |

@@ -27,6 +27,10 @@ import {
 import { enqueueInformeEmailJob } from '../utils/informeEmailQueue.js';
 import { normalizeMultilineText } from '../utils/textNormalize.js';
 import { resolveCorreosFamiliaInforme } from '../utils/evaluacionCorreosFamilia.js';
+import {
+  assertCursoAccess,
+  assertParticipanteAccess,
+} from '../utils/courseAccess.js';
 import { Op, fn, col, where } from 'sequelize';
 
 export const crearEvaluacion = async (req, res) => {
@@ -90,6 +94,18 @@ export const crearEvaluacion = async (req, res) => {
     const evaluacionId = parseEvaluacionId(req.body.evaluacionId);
     const fotoExistenteCliente = req.body.fotoExistente;
 
+    if (categoriaKey) {
+      const allowed = await assertCursoAccess(req.user, categoriaKey);
+      if (!allowed) {
+        return sendError(res, 403, 'No tiene permisos para evaluar este curso');
+      }
+    } else if (identKey) {
+      const allowed = await assertParticipanteAccess(req.user, identKey);
+      if (!allowed) {
+        return sendError(res, 403, 'No tiene permisos para evaluar este participante');
+      }
+    }
+
     const result = await sequelize.transaction(async (transaction) => {
       let existing = null;
       if (evaluacionId) {
@@ -97,6 +113,12 @@ export const crearEvaluacion = async (req, res) => {
         if (!existing) {
           const err = new Error('EVALUACION_NO_ENCONTRADA');
           err.code = 'EVALUACION_NO_ENCONTRADA';
+          throw err;
+        }
+        const allowedExisting = await assertCursoAccess(req.user, existing.categoria);
+        if (!allowedExisting) {
+          const err = new Error('EVALUACION_SIN_PERMISO');
+          err.code = 'EVALUACION_SIN_PERMISO';
           throw err;
         }
       } else {
@@ -288,6 +310,9 @@ export const crearEvaluacion = async (req, res) => {
     if (error?.code === 'EVALUACION_NO_ENCONTRADA') {
       return sendError(res, 404, 'La evaluación a editar no existe o ya fue eliminada');
     }
+    if (error?.code === 'EVALUACION_SIN_PERMISO') {
+      return sendError(res, 403, 'No tiene permisos para modificar esta evaluación');
+    }
     return sendError(res, 500, 'Error al crear la evaluacion', error.message);
   }
 };
@@ -298,6 +323,10 @@ export const obtenerCorreosFamiliaParticipante = async (req, res) => {
       req.params.identificacion != null ? String(req.params.identificacion).trim() : '';
     if (!identificacion) {
       return sendError(res, 400, 'Identificacion requerida');
+    }
+    const allowed = await assertParticipanteAccess(req.user, identificacion);
+    if (!allowed) {
+      return sendError(res, 403, 'No tiene permisos para consultar este participante');
     }
     const correos = await resolveCorreosFamiliaInforme(identificacion);
     return sendSuccess(res, 200, { correos }, 'Correos de familia obtenidos');
@@ -313,6 +342,10 @@ export const obtenerEvaluacionParticipante = async (req, res) => {
 
     if (!identificacion) {
       return sendError(res, 400, 'Identificacion requerida');
+    }
+    const allowed = await assertParticipanteAccess(req.user, identificacion);
+    if (!allowed) {
+      return sendError(res, 403, 'No tiene permisos para consultar este participante');
     }
 
     const evaluaciones = await Evaluaciones.findAll({
@@ -449,6 +482,10 @@ export const enviarEvaluacion = async (req, res) => {
     if (!evaluacion) {
       return sendError(res, 404, 'Evaluacion no encontrada');
     }
+    const allowed = await assertCursoAccess(req.user, evaluacion.categoria);
+    if (!allowed) {
+      return sendError(res, 403, 'No tiene permisos para enviar esta evaluacion');
+    }
     if (informeYaEnviadoHoyColombia(evaluacion.get({ plain: true }))) {
       return sendError(
         res,
@@ -489,11 +526,26 @@ export const enviarEvaluacion = async (req, res) => {
     });
 
     if (!enqueueResult.queued) {
-      return sendError(
-        res,
-        409,
-        'Ya existe un envío de informe en curso para esta evaluación. Espera unos segundos e intenta de nuevo.',
-      );
+      const job = enqueueResult.job?.get ? enqueueResult.job.get({ plain: true }) : enqueueResult.job;
+      const detalleJob = job
+        ? ` (job #${job.id}, estado: ${job.status}, intentos: ${job.attempts ?? 0})`
+        : '';
+      return res.status(409).json({
+        success: false,
+        message: `Ya hay un envío de correo en cola para esta evaluación${detalleJob}. Espera unos segundos e intenta de nuevo.`,
+        envioEnCurso: job
+          ? {
+              jobId: job.id,
+              evaluacionId: job.evaluacion_id,
+              status: job.status,
+              attempts: job.attempts,
+              nextRunAt: job.next_run_at,
+              errorMessage: job.error_message,
+              createdAt: job.created_at,
+              updatedAt: job.updated_at,
+            }
+          : null,
+      });
     }
 
     return sendSuccess(

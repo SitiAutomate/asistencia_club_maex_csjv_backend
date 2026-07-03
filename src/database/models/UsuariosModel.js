@@ -36,6 +36,10 @@ Usuarios.init(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    token_expires_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
     nombre: {
       type: DataTypes.STRING,
       allowNull: true,

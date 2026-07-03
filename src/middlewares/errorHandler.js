@@ -1,4 +1,5 @@
 import { logger } from '../config/logger.js';
+import { env } from '../config/env.js';
 
 export const notFound = (req, res) => {
   res.status(404).json({
@@ -18,8 +19,14 @@ export const errorHandler = (err, req, res) => {
     });
   }
 
+  const isDev = env.nodeEnv === 'development';
+  const message = isDev
+    ? err.message || 'Error interno del servidor'
+    : 'Error interno del servidor';
+
   res.status(err.status || 500).json({
     ok: false,
-    message: err.message || 'Error interno del servidor',
+    success: false,
+    message,
   });
 };

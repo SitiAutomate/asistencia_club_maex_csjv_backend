@@ -72,6 +72,8 @@ export const env = {
     queueConcurrency: Number(process.env.EVALUACION_EMAIL_QUEUE_CONCURRENCY) || 3,
     queuePollMs: Number(process.env.EVALUACION_EMAIL_QUEUE_POLL_MS) || 1200,
     queueIdlePollMs: Number(process.env.EVALUACION_EMAIL_QUEUE_IDLE_POLL_MS) || 6000,
+    /** Jobs en `processing` más viejos que esto se marcan failed (evita 409 permanente). */
+    staleProcessingMs: Number(process.env.EVALUACION_EMAIL_STALE_PROCESSING_MS) || 10 * 60_000,
   },
   rutaSegura: {
     baseUrl: process.env.RUTA_SEGURA || '',
@@ -102,6 +104,10 @@ export const env = {
       process.env.APP_FRONTEND_URL ||
       'http://localhost:5173'
     ).replace(/\/$/, ''),
+    corsOrigins: String(process.env.CORS_ORIGINS || '')
+      .split(',')
+      .map((origin) => origin.trim().replace(/\/$/, ''))
+      .filter(Boolean),
     uploadsDir: path.resolve(process.env.UPLOADS_DIR || path.resolve(process.cwd(), 'uploads')),
   },
   db: {

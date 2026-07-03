@@ -52,3 +52,22 @@ export function evaluateInformeEnvioWindow(config) {
   }
   return { ok: true };
 }
+
+export function isInformeEnvioWorkerPermitido(config) {
+  return evaluateInformeEnvioWindow(config).ok;
+}
+
+export function describeInformeEnvioWindowBlock(config) {
+  const ventana = evaluateInformeEnvioWindow(config);
+  if (ventana.ok) return '';
+  if (ventana.code === 'disabled') {
+    return 'INFORME_ENVIO_HABILITADO=false';
+  }
+  if (ventana.code === 'before_window') {
+    return `antes de INFORME_ENVIO_DESDE (${config.desde || 'sin fecha'})`;
+  }
+  if (ventana.code === 'after_window') {
+    return `después de INFORME_ENVIO_HASTA (${config.hasta || 'sin fecha'})`;
+  }
+  return 'ventana de envío cerrada';
+}

@@ -1,14 +1,26 @@
+import dotenv from 'dotenv';
+import path from 'path';
+import { createMicrosoftOAuthState } from './microsoftOAuthState.js';
 import { env } from '../config/env.js';
 
-export const buildMicrosoftAuthorizeUrl = () => {
+export const buildMicrosoftAuthorizeUrl = (state) => {
   const params = new URLSearchParams({
     client_id: env.microsoft.clientId,
     response_type: 'code',
     redirect_uri: env.microsoft.redirectUri,
     response_mode: 'query',
     scope: 'openid profile email User.Read offline_access',
+    state,
   });
   return `https://login.microsoftonline.com/${env.microsoft.tenantId}/oauth2/v2.0/authorize?${params}`;
+};
+
+export const createMicrosoftAuthorizeSession = () => {
+  const state = createMicrosoftOAuthState();
+  return {
+    state,
+    url: buildMicrosoftAuthorizeUrl(state),
+  };
 };
 
 export const exchangeMicrosoftAuthorizationCode = async (code, redirectUri) => {

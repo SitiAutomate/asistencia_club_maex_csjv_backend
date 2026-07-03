@@ -30,7 +30,7 @@ La configuración centralizada está en `src/config/env.js`.
 
 | Variable | Obligatorio | Descripción |
 |----------|-------------|-------------|
-| `JWT_SECRET` | Sí | Secreto largo y aleatorio para firmar tokens |
+| `JWT_SECRET` | Sí (arranque) | Secreto largo y aleatorio para firmar tokens. El servidor no inicia si está vacío. |
 | `JWT_EXPIRES_IN` | No | Caducidad (ej. `7d`) |
 
 ## URLs de la aplicación
@@ -39,6 +39,7 @@ La configuración centralizada está en `src/config/env.js`.
 |----------|-------------|
 | `APP_PUBLIC_URL` | URL pública del API (enlaces en PDF/correos) |
 | `FRONTEND_URL` | URL del SPA React (verificación, reset password, redirect Microsoft) |
+| `CORS_ORIGINS` | Orígenes permitidos separados por coma (default: `FRONTEND_URL`) |
 | `UPLOADS_DIR` | Ruta absoluta persistente para fotos/PDF (producción en Hostinger, etc.) |
 
 ## Microsoft OAuth (Entrenador / Administrador)

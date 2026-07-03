@@ -1,6 +1,7 @@
 import { QueryTypes } from 'sequelize';
 import { env } from '../config/env.js';
 import { sequelize } from '../database/sequelize.js';
+import { timingSafeEqualString } from '../utils/secureCompare.js';
 
 const MAP_SEDE = {
   '1': 'RETIRO',
@@ -41,7 +42,7 @@ function tokenValido(req) {
   const match = header.match(/^Bearer\s+(.+)$/i);
   const token = String(match?.[1] || '').trim();
   const expected = String(env.integracionClub.bearerIns || '').trim();
-  return Boolean(expected) && token === expected;
+  return Boolean(expected) && timingSafeEqualString(token, expected);
 }
 
 export const listarExtraclasesMesActual = async (req, res) => {
@@ -114,10 +115,11 @@ export const listarExtraclasesMesActual = async (req, res) => {
     }));
     return res.status(200).json(data);
   } catch (error) {
+    const isDev = env.nodeEnv === 'development';
     return res.status(500).json({
       success: false,
       message: 'No se pudo construir la respuesta de extraclases',
-      error: error.message,
+      ...(isDev ? { error: error.message } : {}),
     });
   }
 };

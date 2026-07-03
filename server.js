@@ -7,6 +7,11 @@ import './src/database/models/index.js';
 
 const startServer = async () => {
   try {
+    if (!env.jwt.secret) {
+      logger.error('JWT_SECRET es obligatorio. Definalo en el entorno antes de iniciar el servidor.');
+      process.exit(1);
+    }
+
     logger.info(
       `Iniciando backend en puerto ${env.port} (DB: ${env.db.dialect}://${env.db.host}:${env.db.port}/${env.db.name})`,
     );

@@ -3,6 +3,16 @@ import Usuarios from '../database/models/UsuariosModel.js';
 import { verifyAccessToken } from '../utils/authJwt.js';
 import { env } from '../config/env.js';
 
+const isDatabaseConnectivityError = (error) => {
+  const code = String(error?.parent?.code || error?.original?.code || error?.code || '');
+  const name = String(error?.name || '');
+  if (name.startsWith('Sequelize') && name.includes('Connection')) return true;
+  if (name === 'SequelizeDatabaseError' && ['EADDRNOTAVAIL', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'PROTOCOL_CONNECTION_LOST'].includes(code)) {
+    return true;
+  }
+  return ['EADDRNOTAVAIL', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'PROTOCOL_CONNECTION_LOST'].includes(code);
+};
+
 export const requireAuth = async (req, res, next) => {
   try {
     if (!env.jwt.secret) {
@@ -40,6 +50,14 @@ export const requireAuth = async (req, res, next) => {
     };
     next();
   } catch (e) {
+    if (isDatabaseConnectivityError(e)) {
+      return sendError(
+        res,
+        503,
+        'Base de datos temporalmente no disponible. Intente de nuevo en unos segundos.',
+        env.nodeEnv === 'development' ? e.message : null,
+      );
+    }
     return sendError(
       res,
       401,

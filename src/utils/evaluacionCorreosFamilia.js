@@ -1,4 +1,4 @@
-import Inscripciones from '../database/models/InscripcionesModel.js';
+import Inscripciones, { INSCRIPCIONES_ATTRS_BASE } from '../database/models/InscripcionesModel.js';
 import Participantes from '../database/models/ParticipantesModel.js';
 import Padres from '../database/models/PadresModel.js';
 import Responsable from '../database/models/ResponsableModel.js';
@@ -22,6 +22,7 @@ export const obtenerInscritoParaCorreos = async (identificacion) => {
   const ident = String(identificacion || '').trim();
   if (!ident) return null;
   return Inscripciones.findOne({
+    attributes: INSCRIPCIONES_ATTRS_BASE,
     where: {
       validador_participante: ident,
       Tipo: 1,

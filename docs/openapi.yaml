@@ -523,6 +523,8 @@ paths:
     get:
       tags: [Inscritos]
       summary: Listar inscritos
+      security:
+        - bearerAuth: []
       description: |
         Lista participantes inscritos en un curso.
 
@@ -558,19 +560,21 @@ paths:
     get:
       tags: [Cursos]
       summary: Listar cursos activos
+      security:
+        - bearerAuth: []
       description: |
         **Endpoint principal para obtener el ID del curso.**
 
-        - Envíe `correo` con el email del entrenador/proveedor logueado.
-        - Para listar todos (admin): `scope=all` según permisos.
+        - El correo del docente se toma del JWT salvo rol Administrador.
+        - Para listar todos: `scope=all` (solo Administrador).
         - En `data.cursos[]` use el campo **`ID_Curso`** en llamadas posteriores.
 
         No invente IDs: deben existir en esta respuesta.
       parameters:
         - name: correo
           in: query
-          required: true
-          description: Email del docente (el mismo del JWT / sesión).
+          required: false
+          description: Email del docente (opcional; no-admin usa el correo del JWT).
           schema:
             type: string
             example: entrenador@club.com
@@ -606,6 +610,8 @@ paths:
     get:
       tags: [Cursos]
       summary: Cursos por correo de docente
+      security:
+        - bearerAuth: []
       parameters:
         - name: correo
           in: path

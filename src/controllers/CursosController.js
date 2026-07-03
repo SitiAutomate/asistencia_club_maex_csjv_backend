@@ -1,9 +1,12 @@
-import { Op } from 'sequelize';
-import { QueryTypes } from 'sequelize';
+import { Op, QueryTypes } from 'sequelize';
 import Cursos from '../database/models/CursosModel.js';
 import Asignaciones from '../database/models/AsignacionModel.js';
 import { sequelize } from '../database/sequelize.js';
 import { sendError, sendSuccess } from '../utils/responseHandler.js';
+import {
+  buildWhereCursosDocente,
+  isAdminUser,
+} from '../utils/courseAccess.js';
 
 async function getLiderMetadata(correo) {
   if (!correo) {
@@ -33,91 +36,37 @@ async function getLiderMetadata(correo) {
   };
 }
 
-async function buildWhereCursosDocente(correo, soloMisCursos, scopeAll) {
-  const whereCursos = {
-    Estado_del_curso: { [Op.eq]: 'ACTIVO' },
-    Tipo: { [Op.eq]: 1 },
-  };
-
-  if (scopeAll) {
-    return { whereCursos, tieneApoyoGlobal: true };
-  }
-
-  if (soloMisCursos) {
-    const asignacionesLider = await Asignaciones.findAll({
-      where: {
-        docente: correo,
-        estado: { [Op.eq]: 'ACTIVO' },
-        lider: { [Op.eq]: 'Si' },
-      },
-      attributes: ['actividad'],
-    });
-
-    if (asignacionesLider.length > 0) {
-      const actividades = [
-        ...new Set(
-          asignacionesLider
-            .map((asignacion) => asignacion.actividad)
-            .filter((actividad) => actividad !== null && actividad !== undefined),
-        ),
-      ];
-
-      if (actividades.length > 0) {
-        whereCursos[Op.or] = [
-          { Docente: { [Op.eq]: correo } },
-          { Actividad: { [Op.in]: actividades } },
-        ];
-      } else {
-        whereCursos.Docente = { [Op.eq]: correo };
-      }
-    } else {
-      whereCursos.Docente = { [Op.eq]: correo };
-    }
-
-    return { whereCursos, tieneApoyoGlobal: false };
-  }
-
-  const asignacionesDocente = await Asignaciones.findAll({
-    where: {
-      docente: correo,
-      estado: { [Op.eq]: 'ACTIVO' },
-    },
-    attributes: ['actividad', 'apoyo'],
-  });
-
-  if (asignacionesDocente.length === 0) {
-    return { sinAsignaciones: true };
-  }
-
-  const tieneApoyoGlobal = asignacionesDocente.some((asignacion) => {
-    const apoyo = asignacion.apoyo;
-    return apoyo === 1 || apoyo === '1' || apoyo === true || apoyo === 'true';
-  });
-
-  if (!tieneApoyoGlobal) {
-    const actividades = [
-      ...new Set(
-        asignacionesDocente
-          .map((asignacion) => asignacion.actividad)
-          .filter((actividad) => actividad !== null && actividad !== undefined),
-      ),
-    ];
-
-    whereCursos.Actividad = { [Op.in]: actividades };
-  }
-
-  return { whereCursos, tieneApoyoGlobal };
-}
-
 export const obtenerCursos = async (req, res) => {
   try {
-    const correo = req.params.correo || req.query.correo;
-    const soloMisCursos = String(req.query.soloMisCursos || 'false').toLowerCase() === 'true';
+    const isAdmin = isAdminUser(req.user);
     const scopeAll = String(req.query.scope || '').toLowerCase() === 'all';
+
+    if (scopeAll && !isAdmin) {
+      return sendError(res, 403, 'Solo administradores pueden usar scope=all');
+    }
+
+    let correo = String(req.params.correo || req.query.correo || '').trim().toLowerCase();
+    if (!isAdmin) {
+      correo = String(req.user.email || '').trim().toLowerCase();
+    } else if (req.params.correo) {
+      const paramCorreo = String(req.params.correo || '').trim().toLowerCase();
+      if (paramCorreo !== correo && correo && paramCorreo !== String(req.user.email || '').trim().toLowerCase()) {
+        correo = paramCorreo;
+      }
+    }
 
     if (!correo && !scopeAll) {
       return sendError(res, 400, 'Debes enviar el correo del docente');
     }
+
+    if (!isAdmin && req.params.correo) {
+      const paramCorreo = String(req.params.correo || '').trim().toLowerCase();
+      if (paramCorreo !== correo) {
+        return sendError(res, 403, 'No puede consultar cursos de otro docente');
+      }
+    }
+
+    const soloMisCursos = String(req.query.soloMisCursos || 'false').toLowerCase() === 'true';
 
     const { whereCursos, sinAsignaciones, tieneApoyoGlobal } = await buildWhereCursosDocente(
       correo,

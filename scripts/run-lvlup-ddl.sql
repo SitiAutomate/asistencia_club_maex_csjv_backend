@@ -1,0 +1,17 @@
+-- =============================================================================
+-- ORDEN DE EJECUCIÓN (MySQL)
+-- =============================================================================
+-- 1) schema-lvlup-tipo4.sql  → tablas maestros_academicos, grupos_lvlup, etc.
+-- 2) alter-lvlup-creado-en-default.sql → si creado_en falla desde AppSheet (BD ya creada)
+-- 3) ALTER inscripciones_1   → grupo_lvlup_id (después de crear grupos_lvlup)
+-- 4) seed-lvlup-test.sql     → datos de prueba (opcional)
+--
+-- Verificar:
+-- SHOW TABLES LIKE '%lvlup%';
+-- SHOW COLUMNS FROM inscripciones_1 LIKE 'grupo_lvlup_id';
+
+-- Paso 2 — ejecutar solo si la columna no existe:
+-- ALTER TABLE inscripciones_1
+--   ADD COLUMN grupo_lvlup_id INT UNSIGNED NULL
+--     COMMENT 'FK grupos_lvlup.id — solo si Sesion=Grupal'
+--     AFTER asignatura;

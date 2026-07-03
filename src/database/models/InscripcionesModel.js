@@ -56,5 +56,17 @@ Inscripciones.belongsTo(Participantes, {
   as: 'participante',
 });
 
+/** Columnas usadas por Sequelize. LVL UP (Sesion, asignatura, grupo_lvlup_id) va por SQL directo. */
+export const INSCRIPCIONES_ATTRS_BASE = [
+  'Tipo',
+  'validador_participante',
+  'validador_responsable',
+  'IDCurso',
+  'Transporte',
+  'Sede',
+  'Estado',
+  'Mes',
+  'año',
+];
 
 export default Inscripciones;

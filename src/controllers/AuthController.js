@@ -7,20 +7,32 @@ import {
   signAccessToken,
 } from '../utils/authJwt.js';
 import {
-  buildMicrosoftAuthorizeUrl,
+  createMicrosoftAuthorizeSession,
   exchangeMicrosoftAuthorizationCode,
   fetchMicrosoftGraphProfile,
   normalizeMicrosoftEmail,
 } from '../utils/authMicrosoft.js';
+import { consumeMicrosoftOAuthState } from '../utils/microsoftOAuthState.js';
 import { sendAuthEmail } from '../utils/authMail.js';
 import {
   buildProveedorResetEmail,
   buildProveedorVerifyEmail,
 } from '../utils/authEmailTemplates.js';
 import { env } from '../config/env.js';
+import { findMaestroAcademicoByCorreo } from '../utils/lvlupMaestro.js';
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const generateDbToken = () => crypto.randomBytes(32).toString('hex'); // 64 chars
+const generateDbToken = () => crypto.randomBytes(32).toString('hex');
+const VERIFY_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+const tokenExpiresAt = (ttlMs) => new Date(Date.now() + ttlMs);
+
+const isTokenExpired = (user) => {
+  if (!user?.token_expires_at) return false;
+  const expiresAt = new Date(user.token_expires_at);
+  return Number.isFinite(expiresAt.getTime()) && expiresAt.getTime() < Date.now();
+};
 
 const buildMicrosoftUsuarioIdFallback = (email) => {
   const localPart = String(email || '')
@@ -64,6 +76,7 @@ export const registerProveedor = async (req, res) => {
       rol: ROLES.PROVEEDOR,
       confirmado: false,
       token: verifyJwt,
+      token_expires_at: tokenExpiresAt(VERIFY_TOKEN_TTL_MS),
       usuarioid: documento,
     });
     const verifyUrl = `${env.app.frontendUrl}/verificar-cuenta?token=${encodeURIComponent(verifyJwt)}`;
@@ -118,7 +131,11 @@ export const verifyEmail = async (req, res) => {
     if (!user) {
       return sendError(res, 400, 'Token invalido o expirado');
     }
-    await user.update({ confirmado: true, token: '' });
+    if (isTokenExpired(user)) {
+      await user.update({ token: '', token_expires_at: null });
+      return sendError(res, 400, 'Token invalido o expirado');
+    }
+    await user.update({ confirmado: true, token: '', token_expires_at: null });
     return sendSuccess(res, 200, { email: user.email }, 'Cuenta confirmada');
   } catch (e) {
     return sendError(res, 400, 'Enlace invalido o expirado', e.message);
@@ -172,17 +189,18 @@ export const microsoftAuthorizeInfo = (req, res) => {
   if (!env.microsoft.clientId || !env.microsoft.tenantId || !env.microsoft.clientSecret) {
     return sendError(res, 503, 'Microsoft OAuth no configurado en el servidor');
   }
-  const url = buildMicrosoftAuthorizeUrl();
+  const { state, url } = createMicrosoftAuthorizeSession();
   return sendSuccess(
     res,
     200,
     {
       url,
+      state,
       redirectUri: env.microsoft.redirectUri,
       instruccionesPostman: [
         '1) Abra "url" en el navegador e inicie sesion con Microsoft.',
-        '2) En el redirect, copie el parametro "code" de la URL.',
-        `3) POST /api/auth/microsoft/token con JSON: { "code": "<code>", "redirect_uri": "${env.microsoft.redirectUri}" }`,
+        '2) En el redirect, copie los parametros "code" y "state" de la URL.',
+        `3) POST /api/auth/microsoft/token con JSON: { "code": "<code>", "state": "<state>", "redirect_uri": "${env.microsoft.redirectUri}" }`,
       ],
     },
     'URL de autorizacion Microsoft',
@@ -192,9 +210,13 @@ export const microsoftAuthorizeInfo = (req, res) => {
 export const microsoftToken = async (req, res) => {
   try {
     const code = req.body.code;
+    const state = req.body.state;
     const redirectUri = String(req.body.redirect_uri || env.microsoft.redirectUri).trim();
     if (!code) {
       return sendError(res, 400, 'Campo code requerido');
+    }
+    if (!state || !consumeMicrosoftOAuthState(state)) {
+      return sendError(res, 400, 'Estado OAuth invalido o expirado');
     }
     const tokens = await exchangeMicrosoftAuthorizationCode(code, redirectUri);
     const profile = await fetchMicrosoftGraphProfile(tokens.access_token);
@@ -224,13 +246,19 @@ export const microsoftToken = async (req, res) => {
       rol = ROLES.ADMINISTRADOR;
       usuarioid = user.usuarioid || usuarioid;
       nombre = user.nombre || nombre;
-    } else if (
-      user?.rol &&
-      user.rol !== ROLES.ENTRENADOR &&
-      user.rol !== ROLES.PROVEEDOR &&
-      user.rol !== ROLES.DESARROLLADOR
-    ) {
-      return sendError(res, 403, 'Rol no autorizado para acceso Microsoft');
+    } else {
+      const maestroLvlup = await findMaestroAcademicoByCorreo(email);
+      if (maestroLvlup) {
+        rol = ROLES.MAESTRO_LVLUP;
+        nombre = maestroLvlup.nombre || nombre;
+      } else if (
+        user?.rol &&
+        user.rol !== ROLES.ENTRENADOR &&
+        user.rol !== ROLES.PROVEEDOR &&
+        user.rol !== ROLES.DESARROLLADOR
+      ) {
+        return sendError(res, 403, 'Rol no autorizado para acceso Microsoft');
+      }
     }
 
     const accessToken = signAccessToken({
@@ -273,7 +301,7 @@ export const forgotPassword = async (req, res) => {
     }
     const token = generateDbToken();
     const resetUrl = `${env.app.frontendUrl}/restablecer?token=${encodeURIComponent(token)}`;
-    await user.update({ token });
+    await user.update({ token, token_expires_at: tokenExpiresAt(RESET_TOKEN_TTL_MS) });
     const devPayload = {};
     if (env.nodeEnv === 'development') {
       devPayload.resetLink = resetUrl;
@@ -328,8 +356,12 @@ export const resetPassword = async (req, res) => {
     if (!user) {
       return sendError(res, 400, 'Token invalido o expirado');
     }
+    if (isTokenExpired(user)) {
+      await user.update({ token: '', token_expires_at: null });
+      return sendError(res, 400, 'Token invalido o expirado');
+    }
     const hash = await bcrypt.hash(String(password), 10);
-    await user.update({ password: hash, token: '' });
+    await user.update({ password: hash, token: '', token_expires_at: null });
     return sendSuccess(res, 200, {}, 'Contraseña actualizada');
   } catch (e) {
     return sendError(res, 400, 'Token invalido o expirado', e.message);

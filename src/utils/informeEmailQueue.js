@@ -10,19 +10,43 @@ import {
   sendEvaluacionInformeEmail,
 } from './evaluacionEmail.js';
 import { nowColombiaSqlDatetime } from './fechaColombia.js';
+import {
+  describeInformeEnvioWindowBlock,
+  isInformeEnvioWorkerPermitido,
+} from './informeEnvioWindow.js';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 45_000;
 const RETRY_MAX_DELAY_MS = 5 * 60_000;
+const STALE_PROCESSING_MS = Math.max(
+  60_000,
+  Number(env.evaluacionEmail?.staleProcessingMs || 10 * 60_000),
+);
 const MAX_CONCURRENT_JOBS = Math.max(1, Number(env.evaluacionEmail?.queueConcurrency || 3));
 const ACTIVE_POLL_MS = Math.max(500, Number(env.evaluacionEmail?.queuePollMs || 1200));
 const IDLE_POLL_MS = Math.max(
   ACTIVE_POLL_MS,
   Number(env.evaluacionEmail?.queueIdlePollMs || 6000),
 );
+const WINDOW_RECHECK_MS = Math.max(60_000, IDLE_POLL_MS * 5);
 
 let timeoutHandle = null;
 let activeWorkers = 0;
+let workerPausedLogged = false;
+
+const isWorkerPermitido = () => isInformeEnvioWorkerPermitido(env.informeEnvio);
+
+const clearScheduledLoop = () => {
+  if (timeoutHandle) {
+    clearTimeout(timeoutHandle);
+    timeoutHandle = null;
+  }
+};
+
+const scheduleLoop = (delayMs) => {
+  clearScheduledLoop();
+  timeoutHandle = setTimeout(runWorkerCycle, delayMs);
+};
 
 const computeBackoffMs = (attempts) => {
   const next = RETRY_BASE_DELAY_MS * Math.pow(2, Math.max(0, attempts - 1));
@@ -46,6 +70,32 @@ const normalizePayload = (payload) => {
 
 export const ensureInformeEmailQueueTable = async () => {
   await InformeEmailJob.sync();
+};
+
+/** Jobs en `processing` tras un reinicio o caída quedan bloqueando nuevos envíos. */
+export const releaseStaleInformeEmailJobs = async (evaluacionId = null) => {
+  const staleBefore = new Date(Date.now() - STALE_PROCESSING_MS);
+  const where = {
+    status: 'processing',
+    updated_at: { [Op.lt]: staleBefore },
+  };
+  if (evaluacionId != null && Number.isInteger(Number(evaluacionId))) {
+    where.evaluacion_id = Number(evaluacionId);
+  }
+
+  const staleJobs = await InformeEmailJob.findAll({ where });
+  for (const job of staleJobs) {
+    await job.update({
+      status: 'failed',
+      error_message:
+        'Envío interrumpido (tiempo de procesamiento excedido). Puedes intentar enviar de nuevo.',
+      updated_at: now(),
+    });
+    logger.warn(
+      `Job de informe ${job.id} (evaluación ${job.evaluacion_id}) liberado por timeout en processing`,
+    );
+  }
+  return staleJobs.length;
 };
 
 const claimNextPendingJob = async () => {
@@ -87,6 +137,8 @@ export const enqueueInformeEmailJob = async ({
     throw new Error('evaluacionId invalido para cola de correo');
   }
 
+  await releaseStaleInformeEmailJobs(Number(evaluacionId));
+
   const existingOpenJob = await InformeEmailJob.findOne({
     where: {
       evaluacion_id: Number(evaluacionId),
@@ -123,6 +175,10 @@ async function processOneJob() {
   let handled = false;
 
   try {
+    if (!isWorkerPermitido()) {
+      return { handled };
+    }
+
     currentJob = await claimNextPendingJob();
 
     if (!currentJob) return { handled };
@@ -185,14 +241,31 @@ async function processOneJob() {
   return { handled };
 }
 
-export const startInformeEmailQueueWorker = async () => {
-  if (timeoutHandle) return;
-  await ensureInformeEmailQueueTable();
+const runWorkerCycle = async () => {
+  timeoutHandle = null;
+  try {
+    if (!isWorkerPermitido()) {
+      if (!workerPausedLogged) {
+        logger.info(
+          `Worker de informes pausado: ${describeInformeEnvioWindowBlock(env.informeEnvio)}`,
+        );
+        workerPausedLogged = true;
+      }
+      scheduleLoop(WINDOW_RECHECK_MS);
+      return;
+    }
 
-  const loop = async () => {
+    if (workerPausedLogged) {
+      logger.info(
+        `Worker de informes activo: ventana de envío abierta (concurrencia ${MAX_CONCURRENT_JOBS})`,
+      );
+    }
+    workerPausedLogged = false;
+
+    await releaseStaleInformeEmailJobs();
     const slots = MAX_CONCURRENT_JOBS - activeWorkers;
     if (slots <= 0) {
-      timeoutHandle = setTimeout(loop, ACTIVE_POLL_MS);
+      scheduleLoop(ACTIVE_POLL_MS);
       return;
     }
 
@@ -210,10 +283,30 @@ export const startInformeEmailQueueWorker = async () => {
     const results = await Promise.all(runs);
     const hadWork = results.some((result) => result?.handled);
     const nextMs = hadWork ? ACTIVE_POLL_MS : IDLE_POLL_MS;
-    timeoutHandle = setTimeout(loop, nextMs);
-  };
+    scheduleLoop(nextMs);
+  } catch (error) {
+    logger.error(
+      `Error en ciclo de cola de informes (se reintentará): ${error?.message || 'error desconocido'}`,
+    );
+    scheduleLoop(IDLE_POLL_MS);
+  }
+};
 
-  timeoutHandle = setTimeout(loop, ACTIVE_POLL_MS);
+export const startInformeEmailQueueWorker = async () => {
+  if (timeoutHandle) return;
+  await ensureInformeEmailQueueTable();
+
+  if (!isWorkerPermitido()) {
+    logger.info(
+      `Worker de informes no iniciado: ${describeInformeEnvioWindowBlock(env.informeEnvio)}`,
+    );
+    workerPausedLogged = true;
+    scheduleLoop(WINDOW_RECHECK_MS);
+    return;
+  }
+
+  await releaseStaleInformeEmailJobs();
   logger.info(`Worker de informes iniciado con concurrencia ${MAX_CONCURRENT_JOBS}`);
+  scheduleLoop(ACTIVE_POLL_MS);
 };
 
