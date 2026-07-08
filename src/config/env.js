@@ -65,6 +65,13 @@ export const env = {
     poolMaxConnections: Number(process.env.EMAIL_POOL_MAX_CONNECTIONS) || 5,
     poolMaxMessages: Number(process.env.EMAIL_POOL_MAX_MESSAGES) || 100,
   },
+  /** Límites de peticiones. Valores altos: usuarios comparten IP (WiFi colegio, NAT). */
+  rateLimit: {
+    authWindowMs: Number(process.env.RATE_LIMIT_AUTH_WINDOW_MS) || 15 * 60 * 1000,
+    authMax: Number(process.env.RATE_LIMIT_AUTH_MAX) || 100,
+    apiMax: Number(process.env.RATE_LIMIT_API_MAX) || 2000,
+    integracionMax: Number(process.env.RATE_LIMIT_INTEGRACION_MAX) || 120,
+  },
   evaluacionEmail: {
     incluirCorreosFamilia:
       String(process.env.EVALUACION_EMAIL_INCLUIR_CORREOS_FAMILIA || 'false').toLowerCase() ===
@@ -98,6 +105,19 @@ export const env = {
   },
   app: {
     publicUrl: process.env.APP_PUBLIC_URL || 'http://localhost:4000',
+    /**
+     * Saltos de proxy de confianza (Hostinger/nginx). Necesario para que
+     * express-rate-limit identifique la IP real vía X-Forwarded-For.
+     * 0 = sin proxy (local). 1 = un reverse proxy (producción típica).
+     */
+    trustProxy: (() => {
+      const raw = String(process.env.TRUST_PROXY ?? '').trim();
+      if (raw === '') return process.env.NODE_ENV === 'production' ? 1 : 0;
+      if (raw.toLowerCase() === 'true') return 1;
+      if (raw.toLowerCase() === 'false') return 0;
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? n : 1;
+    })(),
     /** URL base del frontend (enlaces en correos: verificar cuenta, restablecer contraseña). */
     frontendUrl: (
       process.env.FRONTEND_URL ||

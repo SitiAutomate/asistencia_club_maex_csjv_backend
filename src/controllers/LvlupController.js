@@ -144,13 +144,13 @@ async function queryParticipantesAsignacion(asignacion) {
      FROM asignacion_lvlup al
      INNER JOIN inscripciones_1 i
        ON i.Tipo = 4
-      AND TRIM(i.IDCurso) = TRIM(al.id_curso)
+      AND TRIM(i.IDCurso) = TRIM(al.id_curso) COLLATE utf8mb4_general_ci
       AND CAST(i.asignatura AS UNSIGNED) = al.id_asignatura
-      AND TRIM(i.Sede) = TRIM(al.sede)
+      AND TRIM(i.Sede) = TRIM(al.sede) COLLATE utf8mb4_general_ci
       AND TRIM(i.Estado) IN ${ESTADOS_SQL}
       AND (
             (al.sesion = 'Individual'
-             AND TRIM(i.validador_participante) = TRIM(al.validador_participante))
+             AND TRIM(i.validador_participante) = TRIM(al.validador_participante) COLLATE utf8mb4_general_ci)
          OR (al.sesion = 'Grupal' AND i.grupo_lvlup_id = al.grupo_id)
           )
      LEFT JOIN participantes p ON TRIM(p.IDParticipante) = TRIM(i.validador_participante)

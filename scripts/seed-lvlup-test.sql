@@ -17,7 +17,7 @@ SET @grupo_id = LAST_INSERT_ID();
 -- 3) Vincular inscripciones grupales (reemplaza documentos reales)
 -- UPDATE inscripciones_1
 -- SET grupo_lvlup_id = @grupo_id
--- WHERE Tipo = 4 AND TRIM(Sesion) = 'Grupal'
+-- WHERE Tipo = 4 AND TRIM(`Sesión`) = 'Grupal'
 --   AND validador_participante IN ('DOC1','DOC2','DOC3')
 --   AND año = 2026 AND CAST(Mes AS UNSIGNED) = 6;
 

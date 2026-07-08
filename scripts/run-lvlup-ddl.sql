@@ -3,8 +3,9 @@
 -- =============================================================================
 -- 1) schema-lvlup-tipo4.sql  → tablas maestros_academicos, grupos_lvlup, etc.
 -- 2) alter-lvlup-creado-en-default.sql → si creado_en falla desde AppSheet (BD ya creada)
--- 3) ALTER inscripciones_1   → grupo_lvlup_id (después de crear grupos_lvlup)
--- 4) seed-lvlup-test.sql     → datos de prueba (opcional)
+-- 3) alter-inscripciones-lvlup.sql → grupo_lvlup_id (+ Sesion/asignatura si faltan)
+-- 4) alter-lvlup-collation.sql → alinear collation con inscripciones_1 (error 1267)
+-- 5) seed-lvlup-test.sql     → datos de prueba (opcional)
 --
 -- Verificar:
 -- SHOW TABLES LIKE '%lvlup%';

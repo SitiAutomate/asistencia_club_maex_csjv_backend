@@ -25,6 +25,10 @@ import { sendError } from './utils/responseHandler.js';
 
 const app = express();
 
+// Detrás del proxy de Hostinger/nginx: confiar en X-Forwarded-For para que
+// el rate limiter identifique la IP real de cada usuario (no la del proxy).
+app.set('trust proxy', env.app.trustProxy);
+
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },

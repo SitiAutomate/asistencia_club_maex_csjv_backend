@@ -19,7 +19,7 @@ SELECT
   TRIM(i.Sede) AS sede,
   TRIM(i.IDCurso) AS id_curso,
   i.asignatura,
-  TRIM(i.Sesion) AS sesion,
+  TRIM(i.`Sesión`) AS sesion,
   i.grupo_lvlup_id,
   i.Estado,
   i.año,
@@ -74,7 +74,7 @@ ORDER BY g.id, m.id;
 -- FROM grupos_lvlup g
 -- WHERE g.id = @grupo_id;
 
--- F) Simular lo que ve la app: participantes de una asignación (cambia :asignacion_id)
+-- F) Simular lo que ve la app: participantes de una asignación
 -- SET @asignacion_id = 1;
 -- SELECT i.validador_participante AS documento, p.Nombre_Completo AS nombre
 -- FROM asignacion_lvlup al
@@ -83,9 +83,50 @@ ORDER BY g.id, m.id;
 --  AND TRIM(i.IDCurso) = TRIM(al.id_curso)
 --  AND CAST(i.asignatura AS UNSIGNED) = al.id_asignatura
 --  AND TRIM(i.Sede) = TRIM(al.sede)
---  AND i.año = al.anio
---  AND CAST(i.Mes AS UNSIGNED) = al.mes
 --  AND TRIM(i.Estado) IN ('CONFIRMADO','ACTIVO')
---  AND i.grupo_lvlup_id = al.grupo_id
+--  AND (
+--        (al.sesion = 'Individual'
+--         AND TRIM(i.validador_participante) = TRIM(al.validador_participante))
+--     OR (al.sesion = 'Grupal' AND i.grupo_lvlup_id = al.grupo_id)
+--      )
 -- LEFT JOIN participantes p ON TRIM(p.IDParticipante) = TRIM(i.validador_participante)
 -- WHERE al.id = @asignacion_id;
+
+-- G) Diagnóstico: por qué un alumno NO aparece (ajusta ids y documento)
+-- SET @asignacion_id = 1;
+-- SET @documento = '1234567890';
+--
+-- -- Si esto devuelve 0 filas: no existe inscripción Tipo=4 con ese documento
+-- SELECT 'inscripcion' AS paso, COUNT(*) AS filas
+-- FROM inscripciones_1
+-- WHERE Tipo = 4 AND TRIM(validador_participante) = TRIM(@documento);
+--
+-- SELECT
+--   al.id AS asignacion_id,
+--   al.sesion,
+--   al.sede AS asig_sede,
+--   al.id_curso AS asig_curso,
+--   al.id_asignatura AS asig_asig,
+--   al.grupo_id AS asig_grupo,
+--   i.validador_participante,
+--   TRIM(i.Sede) AS insc_sede,
+--   TRIM(i.IDCurso) AS insc_curso,
+--   i.asignatura AS insc_asig,
+--   TRIM(i.Estado) AS insc_estado,
+--   TRIM(i.`Sesión`) AS insc_sesion,
+--   i.grupo_lvlup_id AS insc_grupo,
+--   (TRIM(i.IDCurso) = TRIM(al.id_curso) COLLATE utf8mb4_general_ci) AS ok_curso,
+--   (CAST(i.asignatura AS UNSIGNED) = al.id_asignatura) AS ok_asignatura,
+--   (TRIM(i.Sede) = TRIM(al.sede) COLLATE utf8mb4_general_ci) AS ok_sede,
+--   (TRIM(i.Estado) IN ('CONFIRMADO','ACTIVO')) AS ok_estado,
+--   (al.sesion = 'Grupal' AND i.grupo_lvlup_id = al.grupo_id) AS ok_grupo,
+--   (al.sesion = 'Individual'
+--      AND TRIM(i.validador_participante) = TRIM(al.validador_participante) COLLATE utf8mb4_general_ci) AS ok_individual
+-- FROM asignacion_lvlup al
+-- JOIN inscripciones_1 i
+--   ON i.Tipo = 4 AND TRIM(i.validador_participante) = TRIM(@documento)
+-- WHERE al.id = @asignacion_id;
+-- -- Todas las columnas ok_* deben ser 1 para que la app muestre al alumno.
+-- -- NOTA: el COLLATE evita el error 1267 (inscripciones_1 = utf8mb4_general_ci,
+-- --       tablas LVL UP = utf8mb4_0900_ai_ci). Ver alter-lvlup-collation.sql para
+-- --       alinear las collations de forma permanente.
