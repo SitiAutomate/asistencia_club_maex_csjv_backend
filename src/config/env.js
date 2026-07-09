@@ -138,5 +138,19 @@ export const env = {
     password: decodeIfUrlEncoded(process.env.DB_PASSWORD || ''),
     dialect: process.env.DB_DIALECT || 'mysql',
     connectTimeoutMs: Number(process.env.DB_CONNECT_TIMEOUT_MS) || 8000,
+    /** Pool Sequelize — en Hostinger max_connections_per_hour suele ser 500. */
+    poolMax:
+      Number(process.env.DB_POOL_MAX) ||
+      (process.env.NODE_ENV === 'production' ? 3 : 5),
+    poolMin:
+      process.env.DB_POOL_MIN !== undefined && process.env.DB_POOL_MIN !== ''
+        ? Number(process.env.DB_POOL_MIN)
+        : process.env.NODE_ENV === 'production'
+          ? 1
+          : 0,
+    poolIdleMs:
+      Number(process.env.DB_POOL_IDLE_MS) ||
+      (process.env.NODE_ENV === 'production' ? 120_000 : 30_000),
+    healthCacheMs: Number(process.env.DB_HEALTH_CACHE_MS) || 60_000,
   },
 };

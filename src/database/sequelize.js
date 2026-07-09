@@ -10,10 +10,11 @@ export const sequelize = new Sequelize(env.db.name, env.db.user, env.db.password
   dialect: env.db.dialect,
   logging: env.nodeEnv === 'development' ? (sql) => logger.info(sql) : false,
   pool: {
-    max: 10,
-    min: 0,
+    max: env.db.poolMax,
+    min: env.db.poolMin,
     acquire: env.db.connectTimeoutMs,
-    idle: 10000,
+    idle: env.db.poolIdleMs,
+    evict: Math.max(30_000, Math.floor(env.db.poolIdleMs / 2)),
   },
   dialectOptions: {
     connectTimeout: env.db.connectTimeoutMs,
