@@ -22,6 +22,7 @@ import { getOpenApiSpec, swaggerUiOptions } from './config/swagger.js';
 import { requireSwaggerAccess, setSwaggerSession } from './middlewares/requireSwaggerAccess.js';
 import { apiRateLimiter } from './middlewares/rateLimit.js';
 import { sendError } from './utils/responseHandler.js';
+import { agentDebugLog } from './utils/agentDebugLog.js';
 
 const app = express();
 
@@ -43,6 +44,18 @@ app.use(
         callback(null, true);
         return;
       }
+      // #region agent log
+      agentDebugLog({
+        location: 'app.js:cors',
+        message: 'CORS origin rejected',
+        hypothesisId: 'E',
+        data: {
+          origin,
+          allowedOrigins: corsOrigins,
+          frontendUrl: env.app.frontendUrl,
+        },
+      });
+      // #endregion
       callback(new Error('Origen no permitido por CORS'));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],

@@ -43,15 +43,19 @@ export async function listMaestrosAcademicosActivos() {
 
 /** Maestro efectivo para la petición. Admin: maestroId query > correo en maestros > null (ver todas). */
 export async function resolveMaestroFromRequest(req) {
+  if (Object.prototype.hasOwnProperty.call(req, '_lvlupMaestroResolved')) {
+    return req._lvlupMaestroResolved;
+  }
+
   const maestroIdParam = Number(req.query.maestroId || req.body?.maestroId);
 
+  let maestro = null;
   if (Number.isInteger(maestroIdParam) && maestroIdParam > 0) {
-    return findMaestroAcademicoById(maestroIdParam);
+    maestro = await findMaestroAcademicoById(maestroIdParam);
+  } else {
+    maestro = await findMaestroAcademicoByCorreo(req.user?.email);
   }
 
-  if (isLvlupAdmin(req)) {
-    return findMaestroAcademicoByCorreo(req.user?.email);
-  }
-
-  return findMaestroAcademicoByCorreo(req.user?.email);
+  req._lvlupMaestroResolved = maestro;
+  return maestro;
 }

@@ -20,6 +20,77 @@ export function maxHorasTipoRegistro(asignacion, tipoRegistro) {
   return null;
 }
 
+const EMPTY_CONSUMO = Object.freeze({
+  total: 0,
+  regular: 0,
+  diagnostico: 0,
+  informe: 0,
+  horasDiaTipo: 0,
+});
+
+function parseConsumoRow(row) {
+  return {
+    total: Number(row?.total || 0),
+    regular: Number(row?.regular || 0),
+    diagnostico: Number(row?.diagnostico || 0),
+    informe: Number(row?.informe || 0),
+    horasDiaTipo: Number(row?.horasDiaTipo || 0),
+  };
+}
+
+/** Consumo agregado de todos los participantes de una asignación (1–2 queries en lugar de N). */
+export async function queryConsumoHorasBatch(
+  sequelize,
+  asignacionId,
+  { fecha = null, tipoRegistro = null, transaction } = {},
+) {
+  const rows = await sequelize.query(
+    `SELECT TRIM(validador_participante) AS documento,
+            COALESCE(SUM(horas_asistidas), 0) AS total,
+            COALESCE(SUM(CASE WHEN tipo_registro = 'REGULAR' THEN horas_asistidas ELSE 0 END), 0) AS regular,
+            COALESCE(SUM(CASE WHEN tipo_registro = 'DIAGNOSTICO' THEN horas_asistidas ELSE 0 END), 0) AS diagnostico,
+            COALESCE(SUM(CASE WHEN tipo_registro = 'INFORME_FINAL' THEN horas_asistidas ELSE 0 END), 0) AS informe
+     FROM asistencia_lvlup
+     WHERE asignacion_id = :asignacionId
+     GROUP BY TRIM(validador_participante)`,
+    {
+      replacements: { asignacionId },
+      type: QueryTypes.SELECT,
+      transaction,
+    },
+  );
+
+  const map = new Map();
+  for (const row of rows) {
+    map.set(String(row.documento).trim(), parseConsumoRow(row));
+  }
+
+  if (fecha && tipoRegistro) {
+    const diaRows = await sequelize.query(
+      `SELECT TRIM(validador_participante) AS documento,
+              COALESCE(SUM(horas_asistidas), 0) AS horas
+       FROM asistencia_lvlup
+       WHERE asignacion_id = :asignacionId
+         AND fecha = :fecha
+         AND tipo_registro = :tipoRegistro
+       GROUP BY TRIM(validador_participante)`,
+      {
+        replacements: { asignacionId, fecha, tipoRegistro },
+        type: QueryTypes.SELECT,
+        transaction,
+      },
+    );
+    for (const row of diaRows) {
+      const key = String(row.documento).trim();
+      const base = map.get(key) || { ...EMPTY_CONSUMO };
+      base.horasDiaTipo = Number(row.horas || 0);
+      map.set(key, base);
+    }
+  }
+
+  return map;
+}
+
 export async function queryConsumoHorasParticipante(
   sequelize,
   asignacionId,
@@ -90,14 +161,13 @@ export function buildResumenSaldo(asignacion, consumo) {
   };
 }
 
-export async function validarRegistroHoras(
-  sequelize,
+export function validarRegistroHorasConConsumo(
   asignacion,
   documento,
   horas,
   tipoRegistro,
   fecha,
-  transaction,
+  consumo,
 ) {
   const horasNum = Number(horas);
   if (!Number.isFinite(horasNum) || horasNum <= 0) {
@@ -110,12 +180,6 @@ export async function validarRegistroHoras(
       return `El paquete 3M venció el ${fin}`;
     }
   }
-
-  const consumo = await queryConsumoHorasParticipante(sequelize, asignacion.id, documento, {
-    fecha,
-    tipoRegistro,
-    transaction,
-  });
 
   const prevDia = consumo.horasDiaTipo;
   const tipo = String(tipoRegistro || 'REGULAR').toUpperCase();
@@ -138,6 +202,67 @@ export async function validarRegistroHoras(
     const label = tipo === 'DIAGNOSTICO' ? 'diagnóstico' : 'informe final';
     const prev = tipo === 'DIAGNOSTICO' ? consumo.diagnostico : consumo.informe;
     return `Tope de ${label} (${maxTipo}h): quedan ${Math.max(0, maxTipo - (prev - prevDia))}h`;
+  }
+
+  return null;
+}
+
+export async function validarRegistroHoras(
+  sequelize,
+  asignacion,
+  documento,
+  horas,
+  tipoRegistro,
+  fecha,
+  transaction,
+) {
+  const consumo = await queryConsumoHorasParticipante(sequelize, asignacion.id, documento, {
+    fecha,
+    tipoRegistro,
+    transaction,
+  });
+  return validarRegistroHorasConConsumo(
+    asignacion,
+    documento,
+    horas,
+    tipoRegistro,
+    fecha,
+    consumo,
+  );
+}
+
+/** Valida varios participantes con un solo batch de consumo (sesión grupal). */
+export async function validarRegistrosHoras(
+  sequelize,
+  asignacion,
+  marcas,
+  horasSesion,
+  tipoRegistro,
+  fecha,
+  { participantesMap, transaction } = {},
+) {
+  const consumoMap = await queryConsumoHorasBatch(sequelize, asignacion.id, {
+    fecha,
+    tipoRegistro,
+    transaction,
+  });
+
+  for (const marca of marcas) {
+    const doc = String(marca.documento || marca.validadorParticipante || '').trim();
+    const consumo = consumoMap.get(doc) || { ...EMPTY_CONSUMO };
+    const errorHoras = validarRegistroHorasConConsumo(
+      asignacion,
+      doc,
+      horasSesion,
+      tipoRegistro,
+      fecha,
+      consumo,
+    );
+    if (errorHoras) {
+      const alumno = participantesMap?.get(doc);
+      const nombre = alumno?.nombre || doc;
+      return { documento: doc, nombre, error: errorHoras };
+    }
   }
 
   return null;

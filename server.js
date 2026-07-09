@@ -3,6 +3,7 @@ import { env } from './src/config/env.js';
 import { logger } from './src/config/logger.js';
 import { connectDB } from './src/database/sequelize.js';
 import { startInformeEmailQueueWorker } from './src/utils/informeEmailQueue.js';
+import { startDbPoolMonitor } from './src/utils/dbPoolMonitor.js';
 import './src/database/models/index.js';
 
 const startServer = async () => {
@@ -19,6 +20,7 @@ const startServer = async () => {
     if (!env.startWithoutDb) {
       await connectDB();
       await startInformeEmailQueueWorker();
+      startDbPoolMonitor();
     } else {
       logger.warn('START_WITHOUT_DB=true -> servidor inicia sin validar conexion a BD');
     }

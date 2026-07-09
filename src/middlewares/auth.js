@@ -2,6 +2,12 @@ import { sendError } from '../utils/responseHandler.js';
 import Usuarios from '../database/models/UsuariosModel.js';
 import { verifyAccessToken } from '../utils/authJwt.js';
 import { env } from '../config/env.js';
+import { ROLES } from '../constants/roles.js';
+import { agentDebugLog } from '../utils/agentDebugLog.js';
+import { getDbPoolStats } from '../utils/dbPoolMonitor.js';
+
+const AUTH_USER_CACHE_TTL_MS = 45_000;
+const authUserCache = new Map();
 
 const isDatabaseConnectivityError = (error) => {
   const code = String(error?.parent?.code || error?.original?.code || error?.code || '');
@@ -12,6 +18,38 @@ const isDatabaseConnectivityError = (error) => {
   }
   return ['EADDRNOTAVAIL', 'ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'PROTOCOL_CONNECTION_LOST'].includes(code);
 };
+
+function userFromJwtPayload(payload) {
+  return {
+    usuarioid: String(payload.usuarioid || '').trim(),
+    email: String(payload.email || '').trim(),
+    nombre: '',
+    rol: String(payload.rol || '').trim(),
+  };
+}
+
+function getCachedAuthUser(email) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key) return null;
+  const entry = authUserCache.get(key);
+  if (!entry || Date.now() - entry.ts > AUTH_USER_CACHE_TTL_MS) {
+    if (entry) authUserCache.delete(key);
+    return null;
+  }
+  return entry.user;
+}
+
+function setCachedAuthUser(email, user) {
+  const key = String(email || '').trim().toLowerCase();
+  if (!key || !user) return;
+  authUserCache.set(key, { ts: Date.now(), user });
+  if (authUserCache.size > 500) {
+    const oldest = authUserCache.keys().next().value;
+    if (oldest) authUserCache.delete(oldest);
+  }
+}
+
+const JWT_ONLY_ROLES = new Set([ROLES.MAESTRO_LVLUP, ROLES.ENTRENADOR]);
 
 export const requireAuth = async (req, res, next) => {
   try {
@@ -24,9 +62,35 @@ export const requireAuth = async (req, res, next) => {
       return sendError(res, 401, 'Envie Authorization: Bearer <token>');
     }
     const payload = verifyAccessToken(token);
+    const rolJwt = String(payload.rol || '').trim();
+
+    if (JWT_ONLY_ROLES.has(rolJwt)) {
+      req.user = userFromJwtPayload(payload);
+      return next();
+    }
+
+    const cached = getCachedAuthUser(payload.email);
+    if (cached) {
+      req.user = cached;
+      return next();
+    }
+
+    const authDbStarted = Date.now();
     const user = await Usuarios.findOne({
       where: { email: payload.email },
     });
+    // #region agent log
+    agentDebugLog({
+      location: 'auth.js:requireAuth',
+      message: 'Auth DB lookup completed',
+      hypothesisId: 'D',
+      data: {
+        durationMs: Date.now() - authDbStarted,
+        pool: getDbPoolStats(),
+        path: req.originalUrl,
+      },
+    });
+    // #endregion
 
     if (user) {
       if (!user.confirmado) {
@@ -38,19 +102,28 @@ export const requireAuth = async (req, res, next) => {
         nombre: user.nombre,
         rol: user.rol,
       };
+      setCachedAuthUser(payload.email, req.user);
       return next();
     }
 
     // Acceso Microsoft sin registro local: se confía en claims del JWT emitido por el servidor.
-    req.user = {
-      usuarioid: String(payload.usuarioid || '').trim(),
-      email: String(payload.email || '').trim(),
-      nombre: '',
-      rol: String(payload.rol || '').trim(),
-    };
+    req.user = userFromJwtPayload(payload);
+    setCachedAuthUser(payload.email, req.user);
     next();
   } catch (e) {
     if (isDatabaseConnectivityError(e)) {
+      // #region agent log
+      agentDebugLog({
+        location: 'auth.js:requireAuth',
+        message: 'Auth DB connectivity error',
+        hypothesisId: 'A',
+        data: {
+          pool: getDbPoolStats(),
+          path: req.originalUrl,
+          errorCode: e?.parent?.code || e?.original?.code || e?.code || null,
+        },
+      });
+      // #endregion
       return sendError(
         res,
         503,

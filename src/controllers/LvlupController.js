@@ -7,9 +7,12 @@ import { LVLUP_TIPOS_REGISTRO } from '../utils/lvlupConstants.js';
 import {
   buildResumenSaldo,
   horasContratadasAsignacion,
-  queryConsumoHorasParticipante,
+  queryConsumoHorasBatch,
   validarRegistroHoras,
+  validarRegistrosHoras,
 } from '../utils/lvlupHoras.js';
+import { agentDebugLog } from '../utils/agentDebugLog.js';
+import { getDbPoolStats } from '../utils/dbPoolMonitor.js';
 
 const ESTADOS_SQL = "('CONFIRMADO', 'ACTIVO')";
 
@@ -164,15 +167,32 @@ async function queryParticipantesAsignacion(asignacion) {
 }
 
 async function participantesConSaldo(asignacion) {
+  const started = Date.now();
   const participantes = await queryParticipantesAsignacion(asignacion);
-  const enriched = [];
-  for (const p of participantes) {
-    const consumo = await queryConsumoHorasParticipante(sequelize, asignacion.id, p.documento);
-    enriched.push({
+  const consumoMap = await queryConsumoHorasBatch(sequelize, asignacion.id);
+  const emptyConsumo = { total: 0, regular: 0, diagnostico: 0, informe: 0, horasDiaTipo: 0 };
+  const enriched = participantes.map((p) => {
+    const doc = String(p.documento).trim();
+    const consumo = consumoMap.get(doc) || emptyConsumo;
+    return {
       ...p,
       saldo: buildResumenSaldo(asignacion, consumo),
-    });
-  }
+    };
+  });
+  // #region agent log
+  agentDebugLog({
+    location: 'LvlupController.js:participantesConSaldo',
+    message: 'LVLUP participantes saldo batch completed',
+    hypothesisId: 'C',
+    data: {
+      asignacionId: asignacion?.id ?? null,
+      participanteCount: participantes.length,
+      queryCount: 2,
+      durationMs: Date.now() - started,
+      pool: getDbPoolStats(),
+    },
+  });
+  // #endregion
   return enriched;
 }
 
@@ -508,21 +528,21 @@ export const registrarAsistenciaGrupalLvlup = async (req, res) => {
     const hora = horaActualColombia();
     const registradoPor = String(req.user.email || '').trim();
 
-    for (const marca of marcas) {
-      const doc = String(marca.documento || marca.validadorParticipante || '').trim();
-      const errorHoras = await validarRegistroHoras(
-        sequelize,
-        asignacion,
-        doc,
-        horasSesion,
-        tipoRegistro,
-        fecha,
+    const falloValidacion = await validarRegistrosHoras(
+      sequelize,
+      asignacion,
+      marcas,
+      horasSesion,
+      tipoRegistro,
+      fecha,
+      { participantesMap },
+    );
+    if (falloValidacion) {
+      return sendError(
+        res,
+        400,
+        `${falloValidacion.nombre}: ${falloValidacion.error}`,
       );
-      if (errorHoras) {
-        const alumno = participantesMap.get(doc);
-        const nombre = alumno?.nombre || doc;
-        return sendError(res, 400, `${nombre}: ${errorHoras}`);
-      }
     }
 
     await sequelize.transaction(async (transaction) => {

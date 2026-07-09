@@ -1,6 +1,8 @@
 import { Sequelize } from 'sequelize';
 import { env } from '../config/env.js';
 import { logger } from '../config/logger.js';
+import { agentDebugLog } from '../utils/agentDebugLog.js';
+import { getDbPoolStats } from '../utils/dbPoolMonitor.js';
 
 export const sequelize = new Sequelize(env.db.name, env.db.user, env.db.password, {
   host: env.db.host,
@@ -33,8 +35,29 @@ export const connectDB = async () => {
     });
 
     await Promise.race([authPromise, timeoutPromise]);
+    // #region agent log
+    agentDebugLog({
+      location: 'sequelize.js:connectDB',
+      message: 'DB authenticate success',
+      hypothesisId: 'A',
+      data: getDbPoolStats(),
+    });
+    // #endregion
     logger.success('Conexion con base de datos establecida correctamente');
   } catch (error) {
+    // #region agent log
+    agentDebugLog({
+      location: 'sequelize.js:connectDB',
+      message: 'DB authenticate failed',
+      hypothesisId: 'A',
+      data: {
+        errorName: error?.name || null,
+        errorCode: error?.parent?.code || error?.original?.code || error?.code || null,
+        errorMessage: String(error?.message || '').slice(0, 200),
+        pool: getDbPoolStats(),
+      },
+    });
+    // #endregion
     logger.error(`No se pudo conectar a la base de datos: ${error.message}`);
     throw error;
   }
