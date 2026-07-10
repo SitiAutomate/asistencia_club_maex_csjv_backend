@@ -7,15 +7,19 @@ export function horasContratadasAsignacion(asignacion) {
   return horasContratadasPaquete(asignacion?.tipo_paquete);
 }
 
-/** Tope de horas por tipo de registro (diagnóstico / informe final). */
+/**
+ * Tope de horas por tipo (diagnóstico / informe final).
+ * Viene de la asignación en BD: horas_diagnostico / horas_informe_final.
+ */
 export function maxHorasTipoRegistro(asignacion, tipoRegistro) {
-  const sesion = String(asignacion?.sesion || '').trim();
   const tipo = String(tipoRegistro || '').toUpperCase();
   if (tipo === 'DIAGNOSTICO') {
-    return sesion === 'Grupal' ? 2 : 1;
+    const n = Number(asignacion?.horas_diagnostico);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
   }
   if (tipo === 'INFORME_FINAL') {
-    return sesion === 'Grupal' ? 2 : 1;
+    const n = Number(asignacion?.horas_informe_final);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
   }
   return null;
 }
