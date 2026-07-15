@@ -36,11 +36,21 @@ app.use(
   }),
 );
 
-const corsOrigins = env.app.corsOrigins.length ? env.app.corsOrigins : [env.app.frontendUrl];
+/**
+ * CORS: la API autentica con Bearer JWT (no cookies de sesión).
+ * Abrir CORS evita bloqueos en colegios (www/http proxies, URLs distintas).
+ * Seguridad real = requireAuth + roles + rate limit + HTTPS.
+ *
+ * - CORS_ORIGINS=* u omitido → refleja cualquier Origin
+ * - CORS_ORIGINS=https://a.com,https://b.com → solo esos
+ */
+const corsAllowlist = env.app.corsOrigins.filter((o) => o && o !== '*');
+const corsAllowAll = corsAllowlist.length === 0;
+
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || corsOrigins.includes(origin)) {
+      if (corsAllowAll || !origin || corsAllowlist.includes(origin)) {
         callback(null, true);
         return;
       }
@@ -51,12 +61,13 @@ app.use(
         hypothesisId: 'E',
         data: {
           origin,
-          allowedOrigins: corsOrigins,
+          allowedOrigins: corsAllowlist,
           frontendUrl: env.app.frontendUrl,
         },
       });
       // #endregion
-      callback(new Error('Origen no permitido por CORS'));
+      // false (no Error): responde sin headers CORS, sin tumbar el proceso con 500.
+      callback(null, false);
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
