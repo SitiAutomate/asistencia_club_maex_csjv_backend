@@ -10,6 +10,7 @@ export const signAccessToken = (user) =>
       email: user.email,
       rol: user.rol,
       usuarioid: user.usuarioid,
+      nombre: user.nombre || '',
     },
     env.jwt.secret,
     { expiresIn: env.jwt.expiresIn },
@@ -21,6 +22,7 @@ export const verifyAccessToken = (token) => {
     email: p.email,
     rol: p.rol,
     usuarioid: p.usuarioid,
+    nombre: p.nombre || '',
   };
 };
 

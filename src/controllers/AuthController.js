@@ -265,6 +265,7 @@ export const microsoftToken = async (req, res) => {
       email,
       rol,
       usuarioid,
+      nombre,
     });
     return sendSuccess(
       res,

@@ -23,7 +23,7 @@ function userFromJwtPayload(payload) {
   return {
     usuarioid: String(payload.usuarioid || '').trim(),
     email: String(payload.email || '').trim(),
-    nombre: '',
+    nombre: String(payload.nombre || '').trim(),
     rol: String(payload.rol || '').trim(),
   };
 }

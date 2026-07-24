@@ -123,6 +123,8 @@ export const registrarAsistencia = async (req, res) => {
   try {
     const { documento, nombre, idcurso, curso, reporte, comentarios, ruta, sede, tieneRutaExtra } = req.body;
     const responsable = req.user.email;
+    const responsableLabel =
+      String(req.user?.nombre || '').trim() || String(req.user?.email || '').trim();
     const tieneRuta = Boolean(tieneRutaExtra) && Boolean(documento) && Boolean(sede);
     const reportoAsistencia = String(reporte || '').trim() === 'Asistió';
     const debeSyncRutaSegura = Boolean(documento && sede) && (tieneRuta || reportoAsistencia);
@@ -178,6 +180,7 @@ export const registrarAsistencia = async (req, res) => {
           sede,
           documento,
           tieneRutaExtra: tieneRuta,
+          responsable: responsableLabel,
         });
       }
 
@@ -205,6 +208,7 @@ export const registrarAsistencia = async (req, res) => {
         sede,
         documento,
         tieneRutaExtra: tieneRuta,
+        responsable: responsableLabel,
       });
     }
 

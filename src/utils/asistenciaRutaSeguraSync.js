@@ -54,6 +54,7 @@ export async function sincronizarRutaSeguraSegunAsistenciaDelDia({
   sede,
   documento,
   tieneRutaExtra,
+  responsable,
 }) {
   if (!documento || !sede) {
     return { ok: false, skipped: true, reason: 'datos_incompletos' };
@@ -88,9 +89,11 @@ export async function sincronizarRutaSeguraSegunAsistenciaDelDia({
   }
 
   const excusa = reportesAusencia.find((r) => String(r.reporte || '').trim() === 'Excusa');
-  const note = excusa
+  const baseNote = excusa
     ? String(excusa.comentarios || '').trim() || 'Excusa'
     : 'Faltó';
+  const quien = String(responsable || '').trim();
+  const note = quien ? `${baseNote} — ${quien}` : baseNote;
 
   return registrarNovedadRutaSegura({ sede, document: documento, note });
 }
