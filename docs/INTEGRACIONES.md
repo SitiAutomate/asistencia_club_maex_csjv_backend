@@ -51,16 +51,27 @@ Cuando un participante tiene ruta asignada y se registra **Faltó** o **Excusa**
 
 ## API Integración Club
 
-Endpoint para sistemas externos del club:
-
-```http
-GET /api/integracion-club/:sedeNombre
-Authorization: Bearer <BEARERINS>
-```
+Endpoints para sistemas externos del club. Autenticación: `Authorization: Bearer <BEARERINS>`.
 
 **Sedes:** `RETIRO`, `MEDELLÍN`, o códigos `1` / `2`.
 
+### Extraclases (mes actual)
+
+```http
+GET /api/integracion-club/:sedeNombre
+```
+
 Devuelve extraclases del mes actual (año/mes en `America/Bogota`).
+
+### Transporte (año actual, con fechas diligenciadas)
+
+```http
+GET /api/integracion-club/transporte/:sedeNombre
+```
+
+Misma estructura de respuesta, pero:
+- Filtra solo por **año actual** (sin mes).
+- Solo incluye filas con `FECHA INGRESO NUEVO TRANSPORTE` o `FECHA RETIRO TRANSPORTE` diligenciadas.
 
 **Código:** `IntegracionClubController.js` (consulta SQL directa).
 

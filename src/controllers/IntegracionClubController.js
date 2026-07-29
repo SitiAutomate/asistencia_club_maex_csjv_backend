@@ -26,6 +26,37 @@ const MESES = {
   '12': 'DICIEMBRE',
 };
 
+const SELECT_EXTRACLASES = `
+  TRIM(i.validador_participante) AS documento,
+  TRIM(i.IDCurso) AS id,
+  LPAD(TRIM(i.Mes), 2, '0') AS numMes,
+  TRIM(i.Sede) AS sede,
+  TRIM(i.Estado) AS estado,
+  TRIM(c.Nombre_Corto_Curso) AS curso,
+  TRIM(c.Nombre_del_curso) AS nombreCurso,
+  NULLIF(TRIM(c.Lunes), '') AS lunes,
+  NULLIF(TRIM(c.Martes), '') AS martes,
+  NULLIF(TRIM(c.\`Miércoles\`), '') AS miercoles,
+  NULLIF(TRIM(c.Jueves), '') AS jueves,
+  NULLIF(TRIM(c.Viernes), '') AS viernes,
+  TRIM(p.Nombre_Completo) AS nombre,
+  TRIM(c.Docente) AS entrenador,
+  p.Fecha_Nacimiento AS nacimiento,
+  TRIM(p.Grupo) AS grupo,
+  TRIM(r.Celular_Responsable) AS celResp,
+  TRIM(r.Nombre_Completo) AS responsable,
+  TRIM(r.Correo_Responsable) AS emailResp,
+  TRIM(pa.\`Nombre de la madre\`) AS madre,
+  TRIM(pa.\`Celular madre\`) AS celMadre,
+  TRIM(pa.\`E-mail madre\`) AS emailMadre,
+  TRIM(pa.\`Nombre del padre\`) AS padre,
+  TRIM(pa.\`Celular padre\`) AS celPadre,
+  TRIM(pa.\`E-mail padre\`) AS emailPadre,
+  i.\`FECHA INGRESO NUEVO TRANSPORTE\` AS fechaIngresoNuevoTransporte,
+  i.\`FECHA RETIRO TRANSPORTE\` AS fechaRetiroTransporte,
+  NULL AS poliza
+`;
+
 function mesActualBogota() {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Bogota',
@@ -37,6 +68,10 @@ function mesActualBogota() {
   return { anio, mes };
 }
 
+function anioActualBogota() {
+  return mesActualBogota().anio;
+}
+
 function tokenValido(req) {
   const header = String(req.headers.authorization || '');
   const match = header.match(/^Bearer\s+(.+)$/i);
@@ -45,60 +80,60 @@ function tokenValido(req) {
   return Boolean(expected) && timingSafeEqualString(token, expected);
 }
 
+function resolverSede(req, res) {
+  if (!tokenValido(req)) {
+    res.status(401).json({
+      success: false,
+      message: 'No autorizado',
+    });
+    return null;
+  }
+
+  const sedeRaw = String(req.params.sedeNombre || '').trim().toUpperCase();
+  const sede = MAP_SEDE[sedeRaw];
+  if (!sede) {
+    res.status(400).json({
+      success: false,
+      message: 'Sede inválida. Use RETIRO o MEDELLÍN',
+    });
+    return null;
+  }
+  return sede;
+}
+
+function mapearFilas(rows) {
+  return rows.map((item) => ({
+    ...item,
+    mes: MESES[item.numMes] || item.numMes,
+  }));
+}
+
+function errorRespuesta(res, mensaje, error) {
+  const isDev = env.nodeEnv === 'development';
+  return res.status(500).json({
+    success: false,
+    message: mensaje,
+    ...(isDev ? { error: error.message } : {}),
+  });
+}
+
+const JOINS = `
+  FROM inscripciones_1 i
+  LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(i.IDCurso)
+  LEFT JOIN participantes p ON TRIM(p.IDParticipante) = TRIM(i.validador_participante)
+  LEFT JOIN responsables r ON TRIM(r.IDResponsable) = TRIM(i.validador_responsable)
+  LEFT JOIN padres pa ON TRIM(pa.\`Doc. Alumno\`) = TRIM(i.validador_participante)
+`;
+
 export const listarExtraclasesMesActual = async (req, res) => {
   try {
-    if (!tokenValido(req)) {
-      return res.status(401).json({
-        success: false,
-        message: 'No autorizado',
-      });
-    }
-
-    const sedeRaw = String(req.params.sedeNombre || '').trim().toUpperCase();
-    const sede = MAP_SEDE[sedeRaw];
-    if (!sede) {
-      return res.status(400).json({
-        success: false,
-        message: 'Sede inválida. Use RETIRO o MEDELLÍN',
-      });
-    }
+    const sede = resolverSede(req, res);
+    if (!sede) return;
 
     const { anio, mes } = mesActualBogota();
     const rows = await sequelize.query(
-      `SELECT
-         TRIM(i.validador_participante) AS documento,
-         TRIM(i.IDCurso) AS id,
-         LPAD(TRIM(i.Mes), 2, '0') AS numMes,
-         TRIM(i.Sede) AS sede,
-         TRIM(i.Estado) AS estado,
-         TRIM(c.Nombre_Corto_Curso) AS curso,
-         TRIM(c.Nombre_del_curso) AS nombreCurso,
-         NULLIF(TRIM(c.Lunes), '') AS lunes,
-         NULLIF(TRIM(c.Martes), '') AS martes,
-         NULLIF(TRIM(c.\`Miércoles\`), '') AS miercoles,
-         NULLIF(TRIM(c.Jueves), '') AS jueves,
-         NULLIF(TRIM(c.Viernes), '') AS viernes,
-         TRIM(p.Nombre_Completo) AS nombre,
-         TRIM(c.Docente) AS entrenador,
-         p.Fecha_Nacimiento AS nacimiento,
-         TRIM(p.Grupo) AS grupo,
-         TRIM(r.Celular_Responsable) AS celResp,
-         TRIM(r.Nombre_Completo) AS responsable,
-         TRIM(r.Correo_Responsable) AS emailResp,
-         TRIM(pa.\`Nombre de la madre\`) AS madre,
-         TRIM(pa.\`Celular madre\`) AS celMadre,
-         TRIM(pa.\`E-mail madre\`) AS emailMadre,
-         TRIM(pa.\`Nombre del padre\`) AS padre,
-         TRIM(pa.\`Celular padre\`) AS celPadre,
-         TRIM(pa.\`E-mail padre\`) AS emailPadre,
-         i.\`FECHA INGRESO NUEVO TRANSPORTE\` AS fechaIngresoNuevoTransporte,
-         i.\`FECHA RETIRO TRANSPORTE\` AS fechaRetiroTransporte,
-         NULL AS poliza
-       FROM inscripciones_1 i
-       LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(i.IDCurso)
-       LEFT JOIN participantes p ON TRIM(p.IDParticipante) = TRIM(i.validador_participante)
-       LEFT JOIN responsables r ON TRIM(r.IDResponsable) = TRIM(i.validador_responsable)
-       LEFT JOIN padres pa ON TRIM(pa.\`Doc. Alumno\`) = TRIM(i.validador_participante)
+      `SELECT ${SELECT_EXTRACLASES}
+       ${JOINS}
        WHERE i.Tipo = 1
          AND i.año = :anio
          AND LPAD(TRIM(i.Mes), 2, '0') = :mes
@@ -111,17 +146,42 @@ export const listarExtraclasesMesActual = async (req, res) => {
       },
     );
 
-    const data = rows.map((item) => ({
-      ...item,
-      mes: MESES[item.numMes] || item.numMes,
-    }));
-    return res.status(200).json(data);
+    return res.status(200).json(mapearFilas(rows));
   } catch (error) {
-    const isDev = env.nodeEnv === 'development';
-    return res.status(500).json({
-      success: false,
-      message: 'No se pudo construir la respuesta de extraclases',
-      ...(isDev ? { error: error.message } : {}),
-    });
+    return errorRespuesta(res, 'No se pudo construir la respuesta de extraclases', error);
+  }
+};
+
+/**
+ * Transporte: año actual (sin filtro de mes), solo filas con fecha de ingreso
+ * o retiro de transporte diligenciada.
+ */
+export const listarTransporteAnioActual = async (req, res) => {
+  try {
+    const sede = resolverSede(req, res);
+    if (!sede) return;
+
+    const anio = anioActualBogota();
+    const rows = await sequelize.query(
+      `SELECT ${SELECT_EXTRACLASES}
+       ${JOINS}
+       WHERE i.Tipo = 1
+         AND i.año = :anio
+         AND TRIM(i.Sede) = :sede
+         AND TRIM(i.Estado) IN ('ACTIVO','CONFIRMADO', 'INCAPACITADO', 'RETIRADO')
+         AND (
+           NULLIF(TRIM(i.\`FECHA INGRESO NUEVO TRANSPORTE\`), '') IS NOT NULL
+           OR NULLIF(TRIM(i.\`FECHA RETIRO TRANSPORTE\`), '') IS NOT NULL
+         )
+       ORDER BY c.Nombre_del_curso ASC, p.Nombre_Completo ASC`,
+      {
+        replacements: { anio, sede },
+        type: QueryTypes.SELECT,
+      },
+    );
+
+    return res.status(200).json(mapearFilas(rows));
+  } catch (error) {
+    return errorRespuesta(res, 'No se pudo construir la respuesta de transporte', error);
   }
 };

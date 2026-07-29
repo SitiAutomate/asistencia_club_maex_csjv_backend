@@ -905,6 +905,29 @@ paths:
         '200':
           description: Lista paginada
 
+  /api/integracion-club/transporte/{sedeNombre}:
+    get:
+      tags: [Integración club]
+      summary: Inscripciones con fechas de transporte diligenciadas (año actual)
+      description: >
+        Misma autenticación BEARERINS. Filtra por año actual (America/Bogota),
+        sin filtro de mes. Solo incluye filas con FECHA INGRESO NUEVO TRANSPORTE
+        o FECHA RETIRO TRANSPORTE no vacías.
+      security:
+        - integracionBearer: []
+      parameters:
+        - name: sedeNombre
+          in: path
+          required: true
+          schema:
+            type: string
+          description: RETIRO, MEDELLÍN o código 1/2
+      responses:
+        '200':
+          description: Lista de inscripciones con datos de transporte
+        '401':
+          description: Token BEARERINS inválido
+
   /api/integracion-club/{sedeNombre}:
     get:
       tags: [Integración club]

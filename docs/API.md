@@ -122,6 +122,7 @@ Filtros comunes: `fechaInicio`, `fechaFin`, `anio`, `categoria`, `entrenador`, `
 | Método | Ruta | Auth |
 |--------|------|------|
 | GET | `/api/integracion-club/:sedeNombre` | BEARERINS |
+| GET | `/api/integracion-club/transporte/:sedeNombre` | BEARERINS |
 
 ### Otros
 
