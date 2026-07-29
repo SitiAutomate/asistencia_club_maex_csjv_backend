@@ -91,6 +91,8 @@ export const listarExtraclasesMesActual = async (req, res) => {
          TRIM(pa.\`Nombre del padre\`) AS padre,
          TRIM(pa.\`Celular padre\`) AS celPadre,
          TRIM(pa.\`E-mail padre\`) AS emailPadre,
+         i.\`FECHA INGRESO NUEVO TRANSPORTE\` AS fechaIngresoNuevoTransporte,
+         i.\`FECHA RETIRO TRANSPORTE\` AS fechaRetiroTransporte,
          NULL AS poliza
        FROM inscripciones_1 i
        LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(i.IDCurso)
