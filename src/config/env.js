@@ -128,6 +128,20 @@ export const env = {
       .split(',')
       .map((origin) => origin.trim().replace(/\/$/, ''))
       .filter(Boolean),
+    /**
+     * true = no restringir orígenes (Access-Control-Allow-Origin refleja el Origin).
+     * CORS_DISABLED=true | CORS_ORIGINS=* | CORS_ORIGINS vacío → abierto.
+     * Seguridad = JWT Microsoft/login + roles + rate limit, no la lista CORS.
+     */
+    corsDisabled: (() => {
+      const disabled = String(process.env.CORS_DISABLED || '')
+        .trim()
+        .toLowerCase();
+      if (disabled === 'true' || disabled === '1') return true;
+      const raw = String(process.env.CORS_ORIGINS ?? '').trim();
+      if (raw === '' || raw === '*') return true;
+      return false;
+    })(),
     uploadsDir: path.resolve(process.env.UPLOADS_DIR || path.resolve(process.cwd(), 'uploads')),
   },
   db: {

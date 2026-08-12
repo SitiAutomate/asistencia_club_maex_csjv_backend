@@ -37,41 +37,47 @@ app.use(
 );
 
 /**
- * CORS: la API autentica con Bearer JWT (no cookies de sesión).
- * Abrir CORS evita bloqueos en colegios (www/http proxies, URLs distintas).
- * Seguridad real = requireAuth + roles + rate limit + HTTPS.
+ * CORS: restricción de orígenes desactivable por env.
+ * Seguridad real = Microsoft/login JWT + roles + rate limit + HTTPS.
  *
- * - CORS_ORIGINS=* u omitido → refleja cualquier Origin
- * - CORS_ORIGINS=https://a.com,https://b.com → solo esos
+ * Abierto (recomendado): CORS_DISABLED=true  o  CORS_ORIGINS=*  o vacío
+ * Restringido: CORS_ORIGINS=https://a.com,https://b.com  y CORS_DISABLED=false
  */
 const corsAllowlist = env.app.corsOrigins.filter((o) => o && o !== '*');
-const corsAllowAll = corsAllowlist.length === 0;
+const corsOpen = env.app.corsDisabled || corsAllowlist.length === 0;
 
 app.use(
-  cors({
-    origin(origin, callback) {
-      if (corsAllowAll || !origin || corsAllowlist.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-      // #region agent log
-      agentDebugLog({
-        location: 'app.js:cors',
-        message: 'CORS origin rejected',
-        hypothesisId: 'E',
-        data: {
-          origin,
-          allowedOrigins: corsAllowlist,
-          frontendUrl: env.app.frontendUrl,
+  cors(
+    corsOpen
+      ? {
+          origin: true,
+          methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+          allowedHeaders: ['Content-Type', 'Authorization'],
+        }
+      : {
+          origin(origin, callback) {
+            if (!origin || corsAllowlist.includes(origin)) {
+              callback(null, true);
+              return;
+            }
+            // #region agent log
+            agentDebugLog({
+              location: 'app.js:cors',
+              message: 'CORS origin rejected',
+              hypothesisId: 'E',
+              data: {
+                origin,
+                allowedOrigins: corsAllowlist,
+                frontendUrl: env.app.frontendUrl,
+              },
+            });
+            // #endregion
+            callback(null, false);
+          },
+          methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+          allowedHeaders: ['Content-Type', 'Authorization'],
         },
-      });
-      // #endregion
-      // false (no Error): responde sin headers CORS, sin tumbar el proceso con 500.
-      callback(null, false);
-    },
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  }),
+  ),
 );
 
 app.use(express.json({ limit: '1mb' }));
