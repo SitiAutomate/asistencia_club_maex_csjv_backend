@@ -164,7 +164,24 @@ export const loginProveedor = async (req, res) => {
     if (!ok) {
       return sendError(res, 401, 'Credenciales incorrectas');
     }
-    const accessToken = signAccessToken(user);
+
+    // Si el correo está en maestros_academicos activos → sesión LVL UP (igual que Microsoft).
+    let rol = user.rol;
+    let nombre = user.nombre;
+    if (user.rol === ROLES.PROVEEDOR) {
+      const maestroLvlup = await findMaestroAcademicoByCorreo(email);
+      if (maestroLvlup) {
+        rol = ROLES.MAESTRO_LVLUP;
+        nombre = maestroLvlup.nombre || nombre;
+      }
+    }
+
+    const accessToken = signAccessToken({
+      email: user.email,
+      rol,
+      usuarioid: user.usuarioid,
+      nombre,
+    });
     return sendSuccess(
       res,
       200,
@@ -173,8 +190,8 @@ export const loginProveedor = async (req, res) => {
         tokenType: 'Bearer',
         user: {
           email: user.email,
-          nombre: user.nombre,
-          rol: user.rol,
+          nombre,
+          rol,
           usuarioid: user.usuarioid,
         },
       },
