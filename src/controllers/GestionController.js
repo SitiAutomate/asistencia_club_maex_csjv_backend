@@ -257,6 +257,18 @@ function buildListFilters(query) {
   const actividad = query.actividad != null ? String(query.actividad).trim() : '';
   const categoria = query.categoria != null ? String(query.categoria).trim() : '';
   const excludeTipo1 = String(query.excludeTipo1 || '').toLowerCase() === 'true';
+  /** YYYY-MM-DD (calendario local del usuario / Bogotá). Inclusivo en ambos extremos. */
+  const parseIsoDate = (raw) => {
+    const s = String(raw || '').trim().slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : '';
+  };
+  let fechaDesde = parseIsoDate(query.fechaDesde ?? query.fechaInicio);
+  let fechaHasta = parseIsoDate(query.fechaHasta ?? query.fechaFin);
+  if (fechaDesde && fechaHasta && fechaDesde > fechaHasta) {
+    const tmp = fechaDesde;
+    fechaDesde = fechaHasta;
+    fechaHasta = tmp;
+  }
 
   const clauses = ['1=1'];
   const repl = {};
@@ -315,7 +327,31 @@ function buildListFilters(query) {
     repl.searchQ = `%${q}%`;
   }
 
-  return { clauses, repl, anio, tipo, mes, estado, sede, q, idCurso, actividad, categoria };
+  // Columna DATE: comparar por calendario (YYYY-MM-DD). <= hasta incluye ese día completo.
+  if (fechaDesde) {
+    clauses.push('i.`Fecha_Inscripción` >= :fechaDesde');
+    repl.fechaDesde = fechaDesde;
+  }
+  if (fechaHasta) {
+    clauses.push('i.`Fecha_Inscripción` <= :fechaHasta');
+    repl.fechaHasta = fechaHasta;
+  }
+
+  return {
+    clauses,
+    repl,
+    anio,
+    tipo,
+    mes,
+    estado,
+    sede,
+    q,
+    idCurso,
+    actividad,
+    categoria,
+    fechaDesde,
+    fechaHasta,
+  };
 }
 
 export const listarInscripcionesGestion = async (req, res) => {
