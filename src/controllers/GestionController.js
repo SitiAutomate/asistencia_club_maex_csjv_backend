@@ -242,8 +242,9 @@ const mapDetailRow = (row) => ({
     : null,
 });
 
-function buildListFilters(query) {
-  const { anio: anioBogota, mes: mesBogota } = anioMesBogota();
+function buildListFilters(query, { omit = [] } = {}) {
+  const skip = new Set(omit);
+  const { anio: anioBogota } = anioMesBogota();
   const tipoRaw = query.tipo != null && String(query.tipo).trim() !== '' ? Number(query.tipo) : 1;
   const tipo = Number.isFinite(tipoRaw) ? tipoRaw : 1;
   const anio = /^\d{4}$/.test(String(query.anio || '').trim())
@@ -284,10 +285,12 @@ function buildListFilters(query) {
     repl.tipo = tipo;
   }
 
-  clauses.push('CAST(i.`año` AS UNSIGNED) = :anio');
-  repl.anio = anio;
+  if (!skip.has('anio')) {
+    clauses.push('CAST(i.`año` AS UNSIGNED) = :anio');
+    repl.anio = anio;
+  }
 
-  if (mes && !excludeTipo1) {
+  if (!skip.has('mes') && mes && !excludeTipo1) {
     const variants = mesVariants(mes);
     clauses.push(`i.Mes IN (${variants.map((_, idx) => `:mes${idx}`).join(', ')})`);
     variants.forEach((v, idx) => {
@@ -295,32 +298,32 @@ function buildListFilters(query) {
     });
   }
 
-  if (estado && estado !== 'TODOS') {
+  if (!skip.has('estado') && estado && estado !== 'TODOS') {
     clauses.push('UPPER(TRIM(i.Estado)) = :estado');
     repl.estado = estado;
   }
 
-  if (sede) {
+  if (!skip.has('sede') && sede) {
     clauses.push('i.Sede = :sede');
     repl.sede = sede;
   }
 
-  if (idCurso) {
+  if (!skip.has('idCurso') && idCurso) {
     clauses.push('i.IDCurso = :idCurso');
     repl.idCurso = idCurso;
   }
 
-  if (actividad) {
+  if (!skip.has('actividad') && actividad) {
     clauses.push('c.Actividad = :actividadFiltro');
     repl.actividadFiltro = Number(actividad) || actividad;
   }
 
-  if (categoria) {
+  if (!skip.has('categoria') && categoria) {
     clauses.push(`(TRIM(i.categoria) = :categoriaQ OR TRIM(p.Grupo) = :categoriaQ)`);
     repl.categoriaQ = categoria;
   }
 
-  if (q) {
+  if (!skip.has('q') && q) {
     clauses.push(
       `(i.validador_participante LIKE :searchQ OR i.validador_responsable LIKE :searchQ OR p.Nombre_Completo LIKE :searchQ OR c.Nombre_del_curso LIKE :searchQ OR c.Nombre_Corto_Curso LIKE :searchQ OR i.IDCurso LIKE :searchQ OR i.categoria LIKE :searchQ OR p.Grupo LIKE :searchQ)`,
     );
@@ -328,14 +331,19 @@ function buildListFilters(query) {
   }
 
   // Columna DATE: comparar por calendario (YYYY-MM-DD). <= hasta incluye ese día completo.
-  if (fechaDesde) {
-    clauses.push('i.`Fecha_Inscripción` >= :fechaDesde');
-    repl.fechaDesde = fechaDesde;
+  if (!skip.has('fecha')) {
+    if (fechaDesde) {
+      clauses.push('i.`Fecha_Inscripción` >= :fechaDesde');
+      repl.fechaDesde = fechaDesde;
+    }
+    if (fechaHasta) {
+      clauses.push('i.`Fecha_Inscripción` <= :fechaHasta');
+      repl.fechaHasta = fechaHasta;
+    }
   }
-  if (fechaHasta) {
-    clauses.push('i.`Fecha_Inscripción` <= :fechaHasta');
-    repl.fechaHasta = fechaHasta;
-  }
+
+  const needsCursoJoin = Boolean(repl.actividadFiltro != null || repl.searchQ);
+  const needsParticipanteJoin = Boolean(repl.categoriaQ != null || repl.searchQ);
 
   return {
     clauses,
@@ -351,7 +359,20 @@ function buildListFilters(query) {
     categoria,
     fechaDesde,
     fechaHasta,
+    needsCursoJoin,
+    needsParticipanteJoin,
   };
+}
+
+function metaFromSqlJoins({ needsCursoJoin, needsParticipanteJoin }) {
+  const joins = [];
+  if (needsCursoJoin) {
+    joins.push('LEFT JOIN cursos_2025 c ON c.ID_Curso = i.IDCurso');
+  }
+  if (needsParticipanteJoin) {
+    joins.push('LEFT JOIN participantes p ON p.IDParticipante = i.validador_participante');
+  }
+  return joins.join('\n       ');
 }
 
 export const listarInscripcionesGestion = async (req, res) => {
@@ -1556,151 +1577,96 @@ export const listarCausalesGestion = async (_req, res) => {
   }
 };
 
-/** Años / conteos de mes y estado para filtros de gestión. */
+/** Años / conteos de mes y estado para filtros de gestión (respeta filtros activos). */
 export const metaFiltrosGestion = async (req, res) => {
   try {
     const { anio: anioBogota } = anioMesBogota();
-    const tipoRaw = req.query.tipo != null && String(req.query.tipo).trim() !== '' ? Number(req.query.tipo) : null;
-    const excludeTipo1 = String(req.query.excludeTipo1 || '').toLowerCase() === 'true';
     const anioSel = /^\d{4}$/.test(String(req.query.anio || '').trim())
       ? Number(req.query.anio)
       : anioBogota;
-    const mesSel = String(req.query.mes || '').trim();
-    const estadoSel = String(req.query.estado || '').trim().toUpperCase();
-    const sedeSel = String(req.query.sede || '').trim();
+    const excludeTipo1 = String(req.query.excludeTipo1 || '').toLowerCase() === 'true';
 
-    const buildTipoClauses = (col) => {
-      const clauses = [];
-      const repl = {};
-      if (excludeTipo1) {
-        clauses.push(`${col} <> 1`);
-        if (Number.isFinite(tipoRaw) && tipoRaw > 0) {
-          clauses.push(`${col} = :tipo`);
-          repl.tipo = tipoRaw;
-        }
-      } else if (Number.isFinite(tipoRaw) && tipoRaw > 0) {
-        clauses.push(`${col} = :tipo`);
-        repl.tipo = tipoRaw;
-      } else {
-        clauses.push(`${col} = 1`);
-      }
-      return { clauses, repl, sql: clauses.join(' AND ') };
+    const runFacet = async (omit, extraClauses = [], selectSql, groupOrderSql) => {
+      const f = buildListFilters(req.query, { omit });
+      const joins = metaFromSqlJoins(f);
+      // Facetas de curso/actividad siempre necesitan join a cursos.
+      const forceCurso =
+        /c\.|actividades/.test(selectSql) || /c\.|actividades/.test(groupOrderSql);
+      const joinSql = [
+        forceCurso && !f.needsCursoJoin ? 'LEFT JOIN cursos_2025 c ON c.ID_Curso = i.IDCurso' : '',
+        joins,
+      ]
+        .filter(Boolean)
+        .join('\n       ');
+      const whereSql = [...f.clauses, ...extraClauses].join(' AND ');
+      return sequelize.query(
+        `SELECT ${selectSql}
+         FROM inscripciones_1 i
+         ${joinSql}
+         WHERE ${whereSql}
+         ${groupOrderSql}`,
+        { replacements: f.repl, type: QueryTypes.SELECT },
+      );
     };
 
-    const tipoPlain = buildTipoClauses('Tipo');
-    const tipoAliased = buildTipoClauses('i.Tipo');
-
-    const anios = await sequelize.query(
-      `SELECT CAST(\`año\` AS UNSIGNED) AS anio, COUNT(*) AS total
-       FROM inscripciones_1
-       WHERE ${tipoPlain.sql} AND \`año\` IS NOT NULL
-       GROUP BY CAST(\`año\` AS UNSIGNED)
-       ORDER BY anio DESC`,
-      { replacements: tipoPlain.repl, type: QueryTypes.SELECT },
+    const anios = await runFacet(
+      ['anio', 'mes'],
+      ['i.`año` IS NOT NULL'],
+      'CAST(i.`año` AS UNSIGNED) AS anio, COUNT(*) AS total',
+      'GROUP BY CAST(i.`año` AS UNSIGNED) ORDER BY anio DESC',
     );
 
-    const meses = await sequelize.query(
-      `SELECT LPAD(TRIM(Mes), 2, '0') AS mes, COUNT(*) AS total
-       FROM inscripciones_1
-       WHERE ${tipoPlain.sql} AND CAST(\`año\` AS UNSIGNED) = :anio AND Mes IS NOT NULL AND TRIM(Mes) <> ''
-       GROUP BY LPAD(TRIM(Mes), 2, '0')
-       ORDER BY mes ASC`,
-      { replacements: { ...tipoPlain.repl, anio: anioSel }, type: QueryTypes.SELECT },
+    const meses = excludeTipo1
+      ? []
+      : await runFacet(
+          ['mes'],
+          ["i.Mes IS NOT NULL", "TRIM(i.Mes) <> ''"],
+          "LPAD(TRIM(i.Mes), 2, '0') AS mes, COUNT(*) AS total",
+          "GROUP BY LPAD(TRIM(i.Mes), 2, '0') ORDER BY mes ASC",
+        );
+
+    const estados = await runFacet(
+      ['estado'],
+      ['i.Estado IS NOT NULL', "TRIM(i.Estado) <> ''"],
+      'UPPER(TRIM(i.Estado)) AS estado, COUNT(*) AS total',
+      'GROUP BY UPPER(TRIM(i.Estado)) ORDER BY estado ASC',
     );
 
-    const estadoClauses = [
-      tipoPlain.sql,
-      'CAST(`año` AS UNSIGNED) = :anio',
-      'Estado IS NOT NULL',
-      "TRIM(Estado) <> ''",
-    ];
-    const estadoRepl = { ...tipoPlain.repl, anio: anioSel };
-    if (mesSel && !excludeTipo1) {
-      estadoClauses.push("LPAD(TRIM(Mes), 2, '0') = :mesFiltroEst");
-      estadoRepl.mesFiltroEst = mesSel.padStart(2, '0');
-    }
-    if (sedeSel) {
-      estadoClauses.push('Sede = :sedeFiltroEst');
-      estadoRepl.sedeFiltroEst = sedeSel;
-    }
-
-    const estados = await sequelize.query(
-      `SELECT UPPER(TRIM(Estado)) AS estado, COUNT(*) AS total
-       FROM inscripciones_1
-       WHERE ${estadoClauses.join(' AND ')}
-       GROUP BY UPPER(TRIM(Estado))
-       ORDER BY estado ASC`,
-      { replacements: estadoRepl, type: QueryTypes.SELECT },
-    );
-
-    const cursoCountClauses = [
-      tipoAliased.sql,
-      'CAST(i.`año` AS UNSIGNED) = :anio',
-      'i.IDCurso IS NOT NULL',
-      "TRIM(i.IDCurso) <> ''",
-    ];
-    const cursoCountRepl = { ...tipoAliased.repl, anio: anioSel };
-    if (mesSel && !excludeTipo1) {
-      cursoCountClauses.push("LPAD(TRIM(i.Mes), 2, '0') = :mesFiltro");
-      cursoCountRepl.mesFiltro = mesSel.padStart(2, '0');
-    }
-    if (estadoSel && estadoSel !== 'TODOS') {
-      cursoCountClauses.push('UPPER(TRIM(i.Estado)) = :estadoFiltro');
-      cursoCountRepl.estadoFiltro = estadoSel;
-    }
-    if (sedeSel) {
-      cursoCountClauses.push('i.Sede = :sedeFiltro');
-      cursoCountRepl.sedeFiltro = sedeSel;
-    }
-
-    const cursosConteo = await sequelize.query(
-      `SELECT
-         TRIM(i.IDCurso) AS id,
-         COALESCE(NULLIF(c.Nombre_del_curso, ''), NULLIF(i.nombreCurso, ''), TRIM(i.IDCurso)) AS nombre,
-         c.Actividad AS actividadId,
-         COUNT(*) AS total
-       FROM inscripciones_1 i
-       LEFT JOIN cursos_2025 c ON c.ID_Curso = i.IDCurso
-       WHERE ${cursoCountClauses.join(' AND ')}
-       GROUP BY
+    const cursosConteo = await runFacet(
+      ['idCurso'],
+      ['i.IDCurso IS NOT NULL', "TRIM(i.IDCurso) <> ''"],
+      `TRIM(i.IDCurso) AS id,
+       COALESCE(NULLIF(c.Nombre_del_curso, ''), NULLIF(i.nombreCurso, ''), TRIM(i.IDCurso)) AS nombre,
+       c.Actividad AS actividadId,
+       COUNT(*) AS total`,
+      `GROUP BY
          TRIM(i.IDCurso),
          COALESCE(NULLIF(c.Nombre_del_curso, ''), NULLIF(i.nombreCurso, ''), TRIM(i.IDCurso)),
          c.Actividad
        ORDER BY nombre ASC`,
-      { replacements: cursoCountRepl, type: QueryTypes.SELECT },
     );
 
-    const actividadClauses = [
-      tipoAliased.sql,
-      'CAST(i.`año` AS UNSIGNED) = :anio',
-      'c.Actividad IS NOT NULL',
-    ];
-    const actividadRepl = { ...tipoAliased.repl, anio: anioSel };
-    if (mesSel && !excludeTipo1) {
-      actividadClauses.push("LPAD(TRIM(i.Mes), 2, '0') = :mesFiltroAct");
-      actividadRepl.mesFiltroAct = mesSel.padStart(2, '0');
-    }
-    if (estadoSel && estadoSel !== 'TODOS') {
-      actividadClauses.push('UPPER(TRIM(i.Estado)) = :estadoFiltroAct');
-      actividadRepl.estadoFiltroAct = estadoSel;
-    }
-    if (sedeSel) {
-      actividadClauses.push('i.Sede = :sedeFiltroAct');
-      actividadRepl.sedeFiltroAct = sedeSel;
-    }
-
-    const actividades = await sequelize.query(
+    const actFilters = buildListFilters(req.query, { omit: ['actividad'] });
+    const actJoins = [
+      'LEFT JOIN cursos_2025 c ON c.ID_Curso = i.IDCurso',
+      actFilters.needsParticipanteJoin
+        ? 'LEFT JOIN participantes p ON p.IDParticipante = i.validador_participante'
+        : '',
+      'INNER JOIN actividades a ON a.IDActividad = c.Actividad',
+    ]
+      .filter(Boolean)
+      .join('\n       ');
+    const actividadesRows = await sequelize.query(
       `SELECT
          a.IDActividad AS id,
          a.Nombre_Actividad AS nombre,
          COUNT(*) AS total
        FROM inscripciones_1 i
-       INNER JOIN cursos_2025 c ON c.ID_Curso = i.IDCurso
-       INNER JOIN actividades a ON a.IDActividad = c.Actividad
-       WHERE ${actividadClauses.join(' AND ')}
+       ${actJoins}
+       WHERE ${[...actFilters.clauses, 'c.Actividad IS NOT NULL'].join(' AND ')}
        GROUP BY a.IDActividad, a.Nombre_Actividad
        ORDER BY a.Nombre_Actividad ASC`,
-      { replacements: actividadRepl, type: QueryTypes.SELECT },
+      { replacements: actFilters.repl, type: QueryTypes.SELECT },
     );
 
     return sendSuccess(
@@ -1719,7 +1685,7 @@ export const metaFiltrosGestion = async (req, res) => {
               ? String(r.actividadId)
               : null,
         })),
-        actividades: actividades.map((r) => ({
+        actividades: actividadesRows.map((r) => ({
           id: String(r.id),
           nombre: r.nombre,
           total: Number(r.total || 0),
