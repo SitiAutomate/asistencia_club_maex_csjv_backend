@@ -31,10 +31,10 @@
     "express-rate-limit": "^8.6.1",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
-    "morgan": "^1.11.0",
-    "multer": "^2.2.0",
+    "morgan": "^1.12.0",
+    "multer": "^2.3.0",
     "mysql2": "^3.23.2",
-    "nodemailer": "^9.0.3",
+    "nodemailer": "^10.0.1",
     "pdfkit": "^0.18.0",
     "pg": "^8.22.0",
     "pg-hstore": "^2.3.4",
@@ -53,10 +53,13 @@
   "overrides": {
     "uuid": "^11.1.0",
     "body-parser": "2.3.0",
-    "brace-expansion": "5.0.8",
+    "brace-expansion": "5.0.9",
     "brace-expansion@2": "2.1.2",
-    "brace-expansion@5": "5.0.8",
+    "brace-expansion@5": "5.0.9",
     "minimatch": "10.2.5",
-    "glob": "11.1.0"
+    "glob": "11.1.0",
+    "qs": "6.16.0",
+    "ip-address": "10.7.0",
+    "@humanfs/node": "0.16.8"
   }
 }
