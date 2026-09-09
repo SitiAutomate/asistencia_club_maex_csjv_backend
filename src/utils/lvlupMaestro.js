@@ -1,9 +1,9 @@
 import { QueryTypes } from 'sequelize';
 import { sequelize } from '../database/sequelize.js';
-import { ROLES } from '../constants/roles.js';
+import { isAdminLikeRole, ROLES } from '../constants/roles.js';
 
 export function isLvlupAdmin(req) {
-  return String(req.user?.rol || '').trim() === ROLES.ADMINISTRADOR;
+  return isAdminLikeRole(req.user?.rol);
 }
 
 export async function findMaestroAcademicoByCorreo(correo) {

@@ -2,7 +2,7 @@
 
 Documentación interactiva:
 
-- **Portal visual (recomendado):** en el frontend, menú **Documentación** → `/documentacion` (roles Desarrollador y Administrador). Incluye guías en español y **Exportar PDF**.
+- **Portal visual (recomendado):** en el frontend, menú **Documentación** → `/documentacion` (roles **SuperAdministrador** y **Desarrollador**). Incluye guías en español y **Exportar PDF**.
 - **Swagger UI:** `/api-docs` (solo **Desarrollador** + JWT).
 - **Guía de IDs:** [GUIA_IDENTIFICADORES.md](GUIA_IDENTIFICADORES.md) — de dónde sacar `ID_Curso`, documentos, etc.
 - **Glosario de schemas:** [GLOSARIO_SCHEMAS.md](GLOSARIO_SCHEMAS.md) — qué significa `success`, `data`, cada cuerpo.
@@ -46,8 +46,9 @@ Error:
 
 | Rutas | Roles permitidos |
 |-------|------------------|
-| `/api/asistencia`, `/api/rubricas`, `/api/evaluaciones`, `/api/inscritos`, `/api/cursos` | Administrador, Entrenador, Proveedor |
-| `/api/admin/*` | Solo Administrador |
+| `/api/asistencia`, `/api/rubricas`, `/api/evaluaciones`, `/api/inscritos`, `/api/cursos` | Administrador, SuperAdministrador, Entrenador, Proveedor |
+| `/api/admin/*` | Administrador, SuperAdministrador |
+| `/api/gestion/*` | Administrador, SuperAdministrador (CRUD inscritos / fichas) |
 | `/api-docs` | Solo Desarrollador |
 
 ---

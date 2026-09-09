@@ -20,7 +20,9 @@ const isDatabaseConnectivityError = (error) => {
 };
 
 function userFromJwtPayload(payload) {
+  const id = Number(payload.id);
   return {
+    id: Number.isFinite(id) && id > 0 ? id : null,
     usuarioid: String(payload.usuarioid || '').trim(),
     email: String(payload.email || '').trim(),
     nombre: String(payload.nombre || '').trim(),
@@ -71,8 +73,13 @@ export const requireAuth = async (req, res, next) => {
 
     const cached = getCachedAuthUser(payload.email);
     if (cached) {
-      req.user = cached;
-      return next();
+      // Entradas antiguas sin id numérico rompían admin_permisos: forzar reload.
+      if (cached.id == null && !JWT_ONLY_ROLES.has(String(cached.rol || '').trim())) {
+        authUserCache.delete(String(payload.email || '').trim().toLowerCase());
+      } else {
+        req.user = cached;
+        return next();
+      }
     }
 
     const authDbStarted = Date.now();
@@ -97,6 +104,7 @@ export const requireAuth = async (req, res, next) => {
         return sendError(res, 403, 'Usuario no confirmado');
       }
       req.user = {
+        id: Number(user.id) || null,
         usuarioid: user.usuarioid,
         email: String(user.email || '').trim(),
         nombre: user.nombre,

@@ -7,8 +7,14 @@ class Inscripciones extends Model {}
 
 Inscripciones.init(
   {
+    IDInscripcion: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+      field: 'IDInscripcion',
+    },
     Tipo: {
-      type: DataTypes.INTEGER
+      type: DataTypes.INTEGER,
     },
     validador_participante: {
       type: DataTypes.STRING,
@@ -34,21 +40,48 @@ Inscripciones.init(
     año: {
       type: DataTypes.INTEGER,
     },
+    Fecha_Inscripcion: {
+      type: DataTypes.DATEONLY,
+      field: 'Fecha_Inscripción',
+    },
+    OBSERVACION: {
+      type: DataTypes.TEXT,
+    },
+    Observacion_Facturacion: {
+      type: DataTypes.TEXT,
+    },
+    CausalDeRetiro: {
+      type: DataTypes.STRING,
+      field: 'CAUSAL DE RETIRO',
+    },
+    FechaIngresoNuevoTransporte: {
+      type: DataTypes.DATEONLY,
+      field: 'FECHA INGRESO NUEVO TRANSPORTE',
+    },
+    FechaRetiro: {
+      type: DataTypes.DATEONLY,
+      field: 'FECHA RETIRO EXTRACLASE',
+    },
+    FechaRetiroTransporte: {
+      type: DataTypes.DATEONLY,
+      field: 'FECHA RETIRO TRANSPORTE',
+    },
+    nombreCurso: {
+      type: DataTypes.STRING,
+    },
   },
   {
     sequelize,
     modelName: 'Inscripciones',
     tableName: 'inscripciones_1',
-    timestamps: false
-
+    timestamps: false,
   },
 );
 
-Inscripciones.removeAttribute('id');
-Inscripciones.belongsTo(Cursos, { 
+Inscripciones.belongsTo(Cursos, {
   foreignKey: 'IDCurso',
   targetKey: 'ID_Curso',
-  as: 'curso'
+  as: 'curso',
 });
 Inscripciones.belongsTo(Participantes, {
   foreignKey: 'validador_participante',
@@ -67,6 +100,19 @@ export const INSCRIPCIONES_ATTRS_BASE = [
   'Estado',
   'Mes',
   'año',
+];
+
+export const INSCRIPCIONES_ATTRS_GESTION = [
+  ...INSCRIPCIONES_ATTRS_BASE,
+  'IDInscripcion',
+  'Fecha_Inscripcion',
+  'OBSERVACION',
+  'Observacion_Facturacion',
+  'CausalDeRetiro',
+  'FechaIngresoNuevoTransporte',
+  'FechaRetiro',
+  'FechaRetiroTransporte',
+  'nombreCurso',
 ];
 
 export default Inscripciones;

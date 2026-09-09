@@ -177,6 +177,7 @@ export const loginProveedor = async (req, res) => {
     }
 
     const accessToken = signAccessToken({
+      id: user.id,
       email: user.email,
       rol,
       usuarioid: user.usuarioid,
@@ -189,6 +190,7 @@ export const loginProveedor = async (req, res) => {
         accessToken,
         tokenType: 'Bearer',
         user: {
+          id: user.id,
           email: user.email,
           nombre,
           rol,
@@ -251,16 +253,16 @@ export const microsoftToken = async (req, res) => {
       );
     }
 
-    // Solo "Administrador" depende de existir en BD. El resto entra por Microsoft como Entrenador.
+    // Admin / SuperAdmin dependen de existir en BD. El resto entra por Microsoft como Entrenador.
     let rol = ROLES.ENTRENADOR;
     let usuarioid = buildMicrosoftUsuarioIdFallback(email);
     let nombre = String(profile.displayName || profile.givenName || '').trim() || email;
 
-    if (user?.rol === ROLES.ADMINISTRADOR) {
+    if (user?.rol === ROLES.ADMINISTRADOR || user?.rol === ROLES.SUPER_ADMINISTRADOR) {
       if (!user.confirmado) {
         return sendError(res, 403, 'Usuario no confirmado. Active la cuenta con el administrador.');
       }
-      rol = ROLES.ADMINISTRADOR;
+      rol = user.rol;
       usuarioid = user.usuarioid || usuarioid;
       nombre = user.nombre || nombre;
     } else {
@@ -279,6 +281,7 @@ export const microsoftToken = async (req, res) => {
     }
 
     const accessToken = signAccessToken({
+      id: user?.id ?? null,
       email,
       rol,
       usuarioid,
@@ -291,6 +294,7 @@ export const microsoftToken = async (req, res) => {
         accessToken,
         tokenType: 'Bearer',
         user: {
+          id: user?.id ?? null,
           email,
           nombre,
           rol,

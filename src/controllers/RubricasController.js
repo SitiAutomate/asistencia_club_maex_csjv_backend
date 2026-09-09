@@ -3,7 +3,7 @@ import Rubricas from '../database/models/RubricasModel.js';
 import { Op } from 'sequelize';
 import Asignaciones from '../database/models/AsignacionModel.js';
 import Cursos from '../database/models/CursosModel.js';
-import { ROLES } from '../constants/roles.js';
+import { isAdminLikeRole, ROLES } from '../constants/roles.js';
 
 function isComunFlag(value) {
     return value === 1 || value === true || value === '1' || value === 'true';
@@ -22,7 +22,7 @@ async function docenteEsLider(correo) {
 
 async function validarPayloadRubrica(req, body) {
     const comun = isComunFlag(body.comun);
-    const esAdmin = req.user.rol === ROLES.ADMINISTRADOR;
+    const esAdmin = isAdminLikeRole(req.user.rol);
 
     if (comun) {
         const puedeComun = esAdmin || (await docenteEsLider(req.user.email));
@@ -138,11 +138,11 @@ export const obtenerRubricas = async (req, res) => {
         const cursoId = req.query.cursoId ? String(req.query.cursoId).trim() : null;
 
         if (scope === 'all') {
-            if (req.user.rol !== ROLES.ADMINISTRADOR) {
+            if (!isAdminLikeRole(req.user.rol)) {
                 return sendError(
                     res,
                     403,
-                    'No autorizado: solo Administrador puede listar todas las rubricas (scope=all)',
+                    'No autorizado: solo Administrador o SuperAdministrador pueden listar todas las rubricas (scope=all)',
                 );
             }
 

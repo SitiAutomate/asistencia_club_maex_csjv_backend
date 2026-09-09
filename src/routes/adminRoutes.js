@@ -13,7 +13,7 @@ import {
 
 const router = Router();
 
-router.use(requireAuth, requireRoles(ROLES.ADMINISTRADOR));
+router.use(requireAuth, requireRoles(ROLES.ADMINISTRADOR, ROLES.SUPER_ADMINISTRADOR));
 
 router.get('/informes/resumen', getResumenInformes);
 router.get('/informes/entrenadores', getEntrenadoresInformes);

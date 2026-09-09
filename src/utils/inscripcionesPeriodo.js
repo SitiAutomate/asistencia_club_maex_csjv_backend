@@ -36,6 +36,26 @@ export function anioMesBogota() {
   return { anio: y, mes: m, mesNum: Number(m) };
 }
 
+/** Mes actual y siguiente (dic → ene del año siguiente). */
+export function periodosInscripcionPermitidos() {
+  const { anio, mesNum } = anioMesBogota();
+  const actual = { anio, mes: String(mesNum).padStart(2, '0'), mesNum };
+  let nextAnio = anio;
+  let nextMes = mesNum + 1;
+  if (nextMes > 12) {
+    nextMes = 1;
+    nextAnio = anio + 1;
+  }
+  return [actual, { anio: nextAnio, mes: String(nextMes).padStart(2, '0'), mesNum: nextMes }];
+}
+
+export function isPeriodoInscripcionPermitido(anio, mes) {
+  const a = Number(anio);
+  const m = String(mes || '').padStart(2, '0');
+  if (!Number.isFinite(a) || !m) return false;
+  return periodosInscripcionPermitidos().some((p) => p.anio === a && p.mes === m);
+}
+
 export function getPeriodoDefault(mesNum) {
   const mesPeriodo2 = env.informesPeriodo.periodo2Mes;
   return Number(mesNum) >= mesPeriodo2 ? 'ago_dic' : 'ene_jul';

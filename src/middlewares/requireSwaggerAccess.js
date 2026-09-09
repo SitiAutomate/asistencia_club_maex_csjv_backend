@@ -16,7 +16,7 @@ async function resolveSwaggerUser(token) {
   });
   if (!user) return null;
   if (!user.confirmado) return null;
-  if (user.rol !== ROLES.DESARROLLADOR) return null;
+  if (user.rol !== ROLES.DESARROLLADOR && user.rol !== ROLES.SUPER_ADMINISTRADOR) return null;
   return {
     usuarioid: user.usuarioid,
     email: String(user.email || '').trim(),
@@ -37,7 +37,11 @@ export const setSwaggerSession = async (req, res) => {
 
     const user = await resolveSwaggerUser(token);
     if (!user) {
-      return sendError(res, 403, 'Solo el rol Desarrollador puede acceder a la documentación API');
+      return sendError(
+        res,
+        403,
+        'Solo SuperAdministrador o Desarrollador pueden acceder a la documentación API',
+      );
     }
 
     const secure = env.nodeEnv === 'production';
@@ -60,7 +64,7 @@ export const setSwaggerSession = async (req, res) => {
 };
 
 /**
- * Acceso a /api-docs solo para usuarios con rol Desarrollador.
+ * Acceso a /api-docs: SuperAdministrador o Desarrollador.
  * Acepta Authorization: Bearer o cookie de sesión corta emitida por setSwaggerSession.
  */
 export const requireSwaggerAccess = async (req, res, next) => {
@@ -81,13 +85,17 @@ export const requireSwaggerAccess = async (req, res, next) => {
       return sendError(
         res,
         401,
-        'Acceso restringido. Inicie sesión como Desarrollador o use Authorization: Bearer <token>',
+        'Acceso restringido. Inicie sesión como SuperAdministrador/Desarrollador o use Authorization: Bearer <token>',
       );
     }
 
     const user = await resolveSwaggerUser(token);
     if (!user) {
-      return sendError(res, 403, 'Solo el rol Desarrollador puede acceder a la documentación API');
+      return sendError(
+        res,
+        403,
+        'Solo SuperAdministrador o Desarrollador pueden acceder a la documentación API',
+      );
     }
 
     req.user = user;

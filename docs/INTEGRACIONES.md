@@ -13,7 +13,9 @@
 
 **Reglas de rol:**
 
-- Si el correo existe en `usuarios` con rol **Administrador** y `confirmado = true` → sesión Administrador.
+- Si el correo existe en `usuarios` con rol **Administrador** o **SuperAdministrador** y `confirmado = true` → sesión con ese rol.
+- **SuperAdministrador:** documentación interna + Swagger + Informes + Gestión.
+- **Administrador:** Informes + Gestión (sin documentación/Swagger).
 - Si no está en BD o es Entrenador → sesión **Entrenador**.
 - **Proveedor** y **Desarrollador** deben usar login con contraseña (`POST /api/auth/login`).
 

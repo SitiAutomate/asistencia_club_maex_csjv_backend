@@ -7,6 +7,7 @@ const TYP_RESET = 'pwd_reset';
 export const signAccessToken = (user) =>
   jwt.sign(
     {
+      id: user.id != null ? Number(user.id) : undefined,
       email: user.email,
       rol: user.rol,
       usuarioid: user.usuarioid,
@@ -18,7 +19,9 @@ export const signAccessToken = (user) =>
 
 export const verifyAccessToken = (token) => {
   const p = jwt.verify(token, env.jwt.secret);
+  const id = Number(p.id);
   return {
+    id: Number.isFinite(id) && id > 0 ? id : null,
     email: p.email,
     rol: p.rol,
     usuarioid: p.usuarioid,

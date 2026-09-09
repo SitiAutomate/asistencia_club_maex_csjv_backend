@@ -11,7 +11,7 @@ import { ROLES } from '../constants/roles.js';
 const router = express.Router();
 
 router.use(requireAuth);
-router.use(requireRoles(ROLES.ADMINISTRADOR, ROLES.ENTRENADOR, ROLES.PROVEEDOR));
+router.use(requireRoles(ROLES.ADMINISTRADOR, ROLES.SUPER_ADMINISTRADOR, ROLES.ENTRENADOR, ROLES.PROVEEDOR));
 
 router.get('/periodo-config', obtenerConfigPeriodoInformes);
 router.get('/reportes', obtenerInscritosReportes);

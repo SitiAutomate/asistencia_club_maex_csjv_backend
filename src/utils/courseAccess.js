@@ -3,10 +3,10 @@ import Cursos from '../database/models/CursosModel.js';
 import Asignaciones from '../database/models/AsignacionModel.js';
 import Inscripciones from '../database/models/InscripcionesModel.js';
 import Evaluaciones from '../database/models/EvaluacionesModel.js';
-import { ROLES } from '../constants/roles.js';
+import { isAdminLikeRole } from '../constants/roles.js';
 
 export function isAdminUser(user) {
-  return user?.rol === ROLES.ADMINISTRADOR;
+  return isAdminLikeRole(user?.rol);
 }
 
 export async function buildWhereCursosDocente(correo, soloMisCursos, scopeAll) {

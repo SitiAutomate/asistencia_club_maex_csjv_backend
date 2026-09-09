@@ -58,15 +58,24 @@ export const sendSuccess = (res, statusCode, data, message = null) => {
 export const handleError = (res, error, defaultMessage = 'Error interno del servidor') => {
   console.error('Error capturado:', error);
 
-  // Errores de validación de Sequelize
-  if (error?.name === 'SequelizeValidationError') {
-    const messages = error.errors?.map(e => e.message).join(', ') || error.message;
-    return sendError(res, 400, `Error de validación: ${messages}`, error.message);
+  // Errores de restricción única (duplicados)
+  if (
+    error?.name === 'SequelizeUniqueConstraintError' ||
+    Number(error?.parent?.errno) === 1062 ||
+    Number(error?.original?.errno) === 1062 ||
+    /Duplicate entry/i.test(String(error?.parent?.sqlMessage || error?.message || ''))
+  ) {
+    return sendError(res, 409, 'El registro ya existe en la base de datos', error.message);
   }
 
-  // Errores de restricción única (duplicados)
-  if (error?.name === 'SequelizeUniqueConstraintError') {
-    return sendError(res, 409, 'El registro ya existe en la base de datos', error.message);
+  // Sequelize a veces reporta unique como Validation error
+  if (error?.name === 'SequelizeValidationError' || error?.message === 'Validation error') {
+    const messages = error.errors?.map((e) => e.message).join(', ') || error.message;
+    const looksDup = /unique|primary|duplicate|existe/i.test(messages);
+    if (looksDup) {
+      return sendError(res, 409, 'El registro ya existe en la base de datos', error.message);
+    }
+    return sendError(res, 400, `Error de validación: ${messages}`, error.message);
   }
 
   // Errores de foreign key

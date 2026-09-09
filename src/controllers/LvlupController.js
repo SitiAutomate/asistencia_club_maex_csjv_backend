@@ -140,6 +140,47 @@ export const listarAsignacionesLvlup = async (req, res) => {
 };
 
 async function queryParticipantesAsignacion(asignacion) {
+  const asignacionId = asignacion.id ?? asignacion.asignacion_id;
+  const sesion = String(asignacion.sesion || '').trim();
+
+  // Individual: el alumno está en asignacion_lvlup.validador_participante.
+  // No exigir que la inscripción coincida en asignatura/curso (puede diferir de AppSheet).
+  if (sesion === 'Individual') {
+    return sequelize.query(
+      `SELECT TRIM(al.validador_participante) AS documento,
+              COALESCE(
+                NULLIF(TRIM(p.Nombre_Completo), ''),
+                TRIM(al.validador_participante)
+              ) AS nombre,
+              COALESCE((
+                SELECT TRIM(i.Estado)
+                FROM inscripciones_1 i
+                WHERE i.Tipo = 4
+                  AND TRIM(i.validador_participante) = TRIM(al.validador_participante)
+                      COLLATE utf8mb4_general_ci
+                  AND TRIM(i.Estado) IN ${ESTADOS_SQL}
+                ORDER BY
+                  (TRIM(i.IDCurso) = TRIM(al.id_curso) COLLATE utf8mb4_general_ci) DESC,
+                  (TRIM(i.Sede) = TRIM(al.sede) COLLATE utf8mb4_general_ci) DESC,
+                  (CAST(i.asignatura AS UNSIGNED) = al.id_asignatura) DESC,
+                  CAST(i.\`año\` AS UNSIGNED) DESC,
+                  CAST(i.Mes AS UNSIGNED) DESC
+                LIMIT 1
+              ), 'ACTIVO') AS estado_inscripcion
+       FROM asignacion_lvlup al
+       LEFT JOIN participantes p
+         ON TRIM(p.IDParticipante) = TRIM(al.validador_participante)
+            COLLATE utf8mb4_general_ci
+       WHERE al.id = :asignacionId
+         AND NULLIF(TRIM(al.validador_participante), '') IS NOT NULL
+       LIMIT 1`,
+      {
+        replacements: { asignacionId },
+        type: QueryTypes.SELECT,
+      },
+    );
+  }
+
   return sequelize.query(
     `SELECT i.validador_participante AS documento,
             p.Nombre_Completo AS nombre,
@@ -151,16 +192,15 @@ async function queryParticipantesAsignacion(asignacion) {
       AND CAST(i.asignatura AS UNSIGNED) = al.id_asignatura
       AND TRIM(i.Sede) = TRIM(al.sede) COLLATE utf8mb4_general_ci
       AND TRIM(i.Estado) IN ${ESTADOS_SQL}
-      AND (
-            (al.sesion = 'Individual'
-             AND TRIM(i.validador_participante) = TRIM(al.validador_participante) COLLATE utf8mb4_general_ci)
-         OR (al.sesion = 'Grupal' AND i.grupo_lvlup_id = al.grupo_id)
-          )
-     LEFT JOIN participantes p ON TRIM(p.IDParticipante) = TRIM(i.validador_participante)
+      AND i.grupo_lvlup_id = al.grupo_id
+     LEFT JOIN participantes p
+       ON TRIM(p.IDParticipante) = TRIM(i.validador_participante)
+          COLLATE utf8mb4_general_ci
      WHERE al.id = :asignacionId
+       AND al.sesion = 'Grupal'
      ORDER BY p.Nombre_Completo ASC`,
     {
-      replacements: { asignacionId: asignacion.id },
+      replacements: { asignacionId },
       type: QueryTypes.SELECT,
     },
   );

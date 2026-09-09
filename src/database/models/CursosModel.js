@@ -48,6 +48,12 @@ Cursos.init(
         Linea:{
             type: DataTypes.INTEGER,
         },
+        Tarifa_Curso:{
+            type: DataTypes.STRING,
+        },
+        Codigo_Facturacion:{
+            type: DataTypes.STRING,
+        },
     },
     {
         sequelize,

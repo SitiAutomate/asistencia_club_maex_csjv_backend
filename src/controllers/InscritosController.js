@@ -9,15 +9,19 @@ import { sequelize } from '../database/sequelize.js';
 import { enriquecerConRutaExtra } from '../utils/rutaSegura.js';
 import {
   ESTADOS_INFORME_INSCRIPCION,
+  anioMesBogota,
   getPeriodosInformesConfig,
   inscripcionesValidasPeriodoSubquery,
   resolvePeriodoFiltro,
 } from '../utils/inscripcionesPeriodo.js';
 import { userCanAccessCurso } from '../utils/courseAccess.js';
 
-const anioActual = new Date().getFullYear();
-
-const mesActual = String(new Date().getMonth() + 1).padStart(2, '0');
+/** Mes actual en Bogotá; acepta '09' y '9' en BD. */
+const buildMesWhere = (mes) => {
+  const padded = String(mes).padStart(2, '0');
+  const variants = [...new Set([padded, String(Number(padded))])];
+  return variants.length === 1 ? { [Op.eq]: variants[0] } : { [Op.in]: variants };
+};
 
 const parseEstadosQuery = (estadoQuery, fallback, { allowRetirado = false } = {}) => {
   const estados = estadoQuery
@@ -215,6 +219,8 @@ export const obtenerInscritosActivos = async (req, res) => {
       ? estadoQuery.split(',').map((estado) => estado.trim()).filter(Boolean)
       : ['CONFIRMADO'];
 
+    const { anio: anioActual, mes: mesActual } = anioMesBogota();
+
     const whereInscritos = {
       año: {
         [Op.eq]: anioActual,
@@ -229,9 +235,7 @@ export const obtenerInscritosActivos = async (req, res) => {
         : {
             [Op.in]: estados,
           },
-      Mes: {
-        [Op.eq]: mesActual,
-      },
+      Mes: buildMesWhere(mesActual),
     };
 
     if (idCurso) {

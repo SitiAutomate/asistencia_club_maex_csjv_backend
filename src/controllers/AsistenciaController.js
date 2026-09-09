@@ -1,9 +1,13 @@
-import { Op, fn, col, where as sqlWhere } from 'sequelize';
+import { Op, fn, col, where as sqlWhere, QueryTypes } from 'sequelize';
 import Asistencia from '../database/models/AsistenciaModel.js';
 import Asignaciones from '../database/models/AsignacionModel.js';
 import Cursos from '../database/models/CursosModel.js';
+import { sequelize } from '../database/sequelize.js';
 import { sendError, sendSuccess } from '../utils/responseHandler.js';
 import { sincronizarRutaSeguraSegunAsistenciaDelDia } from '../utils/asistenciaRutaSeguraSync.js';
+import { fechaHoyColombiaYmd } from '../utils/fechaColombia.js';
+import { anioMesBogota } from '../utils/inscripcionesPeriodo.js';
+import { isAdminLikeRole } from '../constants/roles.js';
 
 async function resolveCursosAsignados(correo) {
   const asignaciones = await Asignaciones.findAll({
@@ -215,5 +219,127 @@ export const registrarAsistencia = async (req, res) => {
     return sendSuccess(res, 200, { asistencia }, 'Asistencia registrada correctamente');
   } catch (error) {
     return sendError(res, 500, 'Error al registrar asistencia', error.message);
+  }
+};
+
+/** Columna de día de la semana en cursos_2025 según calendario Bogotá. */
+function columnaDiaCursoHoyBogota() {
+  const weekday = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Bogota',
+    weekday: 'short',
+  }).format(new Date());
+  const map = {
+    Mon: 'Lunes',
+    Tue: 'Martes',
+    Wed: 'Miércoles',
+    Thu: 'Jueves',
+    Fri: 'Viernes',
+    Sat: 'SÁBADO',
+  };
+  return map[weekday] || null;
+}
+
+function diaMarcadoSql(colName) {
+  // Columna puede tener acentos; quote con backticks.
+  const col = `\`${String(colName).replace(/`/g, '')}\``;
+  return `(
+    UPPER(TRIM(IFNULL(${col}, ''))) IN ('X', 'SI', 'SÍ', '1', 'TRUE')
+  )`;
+}
+
+/**
+ * Cursos Tipo=1 activos que tienen clase hoy (Bogotá) y aún no tienen
+ * ninguna asistencia registrada en el día. Para gestores.
+ */
+export const listarCursosSinAsistenciaHoy = async (req, res) => {
+  try {
+    if (!isAdminLikeRole(req.user?.rol)) {
+      return sendError(res, 403, 'Solo gestores pueden ver este listado');
+    }
+
+    const hoy = fechaHoyColombiaYmd();
+    const { anio, mes } = anioMesBogota();
+    const sede = String(req.query.sede || '').trim();
+    const diaCol = columnaDiaCursoHoyBogota();
+
+    if (!diaCol) {
+      return sendSuccess(
+        res,
+        200,
+        { fecha: hoy, dia: null, total: 0, cursos: [] },
+        'Hoy no hay clases programadas (domingo)',
+      );
+    }
+
+    const clauses = [
+      'c.Tipo = 1',
+      `c.Estado_del_curso = 'ACTIVO'`,
+      diaMarcadoSql(diaCol),
+      `EXISTS (
+         SELECT 1 FROM inscripciones_1 i
+         WHERE TRIM(i.IDCurso) = TRIM(c.ID_Curso)
+           AND i.Tipo = 1
+           AND CAST(i.\`año\` AS UNSIGNED) = :anio
+           AND LPAD(TRIM(i.Mes), 2, '0') = :mes
+           AND TRIM(i.Estado) IN ('CONFIRMADO', 'ACTIVO', 'INCAPACITADO')
+       )`,
+      `NOT EXISTS (
+         SELECT 1 FROM asistencia a
+         WHERE TRIM(a.idcurso) = TRIM(c.ID_Curso)
+           AND DATE(a.fecha) = :hoy
+       )`,
+    ];
+    const repl = { hoy, anio, mes };
+
+    if (sede) {
+      clauses.push(`UPPER(TRIM(IFNULL(c.Sede, ''))) = UPPER(TRIM(:sede))`);
+      repl.sede = sede;
+    }
+
+    const rows = await sequelize.query(
+      `SELECT
+          TRIM(c.ID_Curso) AS idCurso,
+          c.Nombre_del_curso AS nombre,
+          c.Nombre_Corto_Curso AS nombreCorto,
+          TRIM(c.Sede) AS sede,
+          c.Actividad AS actividadId,
+          a.Nombre_Actividad AS actividad,
+          COALESCE(
+            NULLIF(TRIM(e.Nombre_Docente), ''),
+            NULLIF(TRIM(e2.Nombre_Docente), ''),
+            NULLIF(TRIM(c.Docente), '')
+          ) AS docente
+       FROM cursos_2025 c
+       LEFT JOIN actividades a ON a.IDActividad = c.Actividad
+       LEFT JOIN entrenadores e ON CONVERT(TRIM(e.ID) USING utf8mb4) = CONVERT(TRIM(c.Docente) USING utf8mb4)
+       LEFT JOIN entrenadores e2 ON CONVERT(TRIM(e2.Correo) USING utf8mb4) = CONVERT(TRIM(c.Docente) USING utf8mb4)
+       WHERE ${clauses.join(' AND ')}
+       ORDER BY a.Nombre_Actividad ASC, c.Nombre_del_curso ASC`,
+      { replacements: repl, type: QueryTypes.SELECT },
+    );
+
+    const cursos = rows.map((r) => ({
+      idCurso: String(r.idCurso || ''),
+      nombre: r.nombre || r.nombreCorto || String(r.idCurso || ''),
+      nombreCorto: r.nombreCorto || null,
+      sede: r.sede || null,
+      actividadId: r.actividadId != null ? Number(r.actividadId) : null,
+      actividad: r.actividad || null,
+      docente: r.docente || null,
+    }));
+
+    return sendSuccess(
+      res,
+      200,
+      {
+        fecha: hoy,
+        dia: diaCol,
+        total: cursos.length,
+        cursos,
+      },
+      'Cursos sin asistencia de hoy',
+    );
+  } catch (error) {
+    return sendError(res, 500, 'Error al listar cursos sin asistencia', error.message);
   }
 };

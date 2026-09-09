@@ -48,7 +48,7 @@ Códigos HTTP habituales: `400` datos inválidos, `401` sin token, `403` sin per
 | accessToken | JWT para header Authorization |
 | tokenType | Siempre `Bearer` |
 | user.email | Correo de sesión |
-| user.rol | Administrador, Entrenador, Proveedor, Desarrollador |
+| user.rol | SuperAdministrador, Administrador, Entrenador, Proveedor, Desarrollador, MaestroLVLUP |
 | user.usuarioid | Documento o identificador interno |
 | user.nombre | Nombre para mostrar |
 
