@@ -37,6 +37,13 @@ import {
   actualizarResponsableGestion,
 } from '../controllers/GestionController.js';
 import {
+  listarEntrenadoresGestion,
+  obtenerEntrenadorGestion,
+  crearEntrenadorGestion,
+  actualizarEntrenadorGestion,
+  guardarAsignacionesEntrenador,
+} from '../controllers/GestionEntrenadoresController.js';
+import {
   obtenerMisPermisosGestion,
   listarAdminsPermisos,
   obtenerPermisosUsuario,
@@ -190,6 +197,32 @@ router.patch(
   '/responsables/:doc',
   requireGestionPermiso(GESTION_MODULOS.RESPONSABLES, GESTION_ACCIONES.EDITAR),
   actualizarResponsableGestion,
+);
+
+router.get(
+  '/entrenadores',
+  requireGestionPermiso(GESTION_MODULOS.ENTRENADORES, GESTION_ACCIONES.LEER),
+  listarEntrenadoresGestion,
+);
+router.get(
+  '/entrenadores/:id',
+  requireGestionPermiso(GESTION_MODULOS.ENTRENADORES, GESTION_ACCIONES.LEER),
+  obtenerEntrenadorGestion,
+);
+router.post(
+  '/entrenadores',
+  requireGestionPermiso(GESTION_MODULOS.ENTRENADORES, GESTION_ACCIONES.CREAR),
+  crearEntrenadorGestion,
+);
+router.patch(
+  '/entrenadores/:id',
+  requireGestionPermiso(GESTION_MODULOS.ENTRENADORES, GESTION_ACCIONES.EDITAR),
+  actualizarEntrenadorGestion,
+);
+router.put(
+  '/entrenadores/:id/asignaciones',
+  requireGestionPermiso(GESTION_MODULOS.ENTRENADORES, GESTION_ACCIONES.EDITAR),
+  guardarAsignacionesEntrenador,
 );
 
 router.get(

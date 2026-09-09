@@ -181,12 +181,16 @@ const mapListRow = (row, camposLista = []) => {
     fechaRetiro: row.FechaRetiro,
     fechaRetiroTransporte: row.FechaRetiroTransporte,
     idCurso: row.IDCurso,
-    nombreCurso: row.nombre_curso || row.nombreCurso || '',
+    nombreCurso: row.nombre_curso || row.nombreCurso || row.IDCurso || '',
     codigoFacturacion: row.Codigo_Facturacion || '',
     documentoParticipante: row.validador_participante,
     nombreParticipante: row.nombre_participante || '',
+    fechaNacimiento: row.fecha_nacimiento || null,
     documentoResponsable: row.validador_responsable,
     nombreResponsable: row.nombre_responsable || '',
+    celularResponsable: row.celular_responsable || '',
+    correoResponsable: row.correo_responsable || '',
+    costoCurso: row.Tarifa_Curso ?? row.tarifa_curso ?? '',
   };
   if (!camposLista.length) {
     base.camposExtra = [];
@@ -435,8 +439,12 @@ export const listarInscripcionesGestion = async (req, res) => {
          i.nombreCurso,
          c.Nombre_del_curso AS nombre_curso,
          c.Codigo_Facturacion,
+         c.Tarifa_Curso,
          p.Nombre_Completo AS nombre_participante,
-         r.Nombre_Completo AS nombre_responsable
+         p.Fecha_Nacimiento AS fecha_nacimiento,
+         r.Nombre_Completo AS nombre_responsable,
+         r.Celular_Responsable AS celular_responsable,
+         r.Correo_Responsable AS correo_responsable
          ${extraSelect}
        FROM inscripciones_1 i
        LEFT JOIN participantes p ON p.IDParticipante = i.validador_participante
