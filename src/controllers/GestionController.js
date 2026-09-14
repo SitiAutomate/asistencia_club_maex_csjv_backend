@@ -155,6 +155,15 @@ const emptyToNull = (value) => {
   return s === '' ? null : s;
 };
 
+/** ORDER BY solo desde whitelist (nunca interpolar el query del cliente). */
+function orderByWhitelist(query, allowed, fallback) {
+  const key = String(query?.sort || '').trim();
+  const expr = allowed[key];
+  if (!expr) return fallback;
+  const dir = String(query?.dir || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+  return `${expr} ${dir}`;
+}
+
 /** Normaliza transporte a SI / NO (o null si vacío). */
 const normalizeTransporte = (value) => {
   if (value === undefined) return undefined;
@@ -451,7 +460,20 @@ export const listarInscripcionesGestion = async (req, res) => {
        LEFT JOIN responsables r ON r.IDResponsable = i.validador_responsable
        LEFT JOIN cursos_2025 c ON c.ID_Curso = i.IDCurso
        WHERE ${whereSql}
-       ORDER BY i.\`Fecha_Inscripción\` DESC, i.IDInscripcion DESC
+       ORDER BY ${orderByWhitelist(
+         req.query,
+         {
+           fecha: 'i.`Fecha_Inscripción`',
+           participante: 'p.Nombre_Completo',
+           curso: 'COALESCE(c.Nombre_del_curso, i.nombreCurso, i.IDCurso)',
+           estado: 'i.Estado',
+           mes: 'CAST(i.Mes AS UNSIGNED)',
+           anio: 'i.año',
+           sede: 'i.Sede',
+           transporte: 'i.Transporte',
+         },
+         'i.`Fecha_Inscripción` DESC, i.IDInscripcion DESC',
+       )}, i.IDInscripcion DESC
        ${limitSql}`,
       {
         replacements: repl,
@@ -1726,10 +1748,26 @@ export const listarParticipantesGestion = async (req, res) => {
       `SELECT COUNT(*) AS total FROM participantes p WHERE ${whereSql}`,
       { replacements: repl, type: QueryTypes.SELECT },
     );
+    const orderSql = orderByWhitelist(
+      req.query,
+      {
+        documento: 'p.IDParticipante',
+        nombre: 'p.Nombre_Completo',
+        grupo: 'p.Grupo',
+        responsable: 'r.Nombre_Completo',
+      },
+      'p.Nombre_Completo ASC',
+    );
     const rows = await sequelize.query(
       `SELECT
          p.IDParticipante AS documento,
          p.Nombre_Completo AS nombreCompleto,
+         p.Primer_Nombre AS primerNombre,
+         p.Segundo_Nombre AS segundoNombre,
+         p.Primer_Apellido AS primerApellido,
+         p.Segundo_Apellido AS segundoApellido,
+         p.Tipo_documento AS tipoDocumento,
+         p.interno_externo AS internoExterno,
          p.Grupo AS grupo,
          p.Fecha_Nacimiento AS fechaNacimiento,
          p.IDResponsable AS idResponsable,
@@ -1737,7 +1775,7 @@ export const listarParticipantesGestion = async (req, res) => {
        FROM participantes p
        LEFT JOIN responsables r ON r.IDResponsable = p.IDResponsable
        WHERE ${whereSql}
-       ORDER BY p.Nombre_Completo ASC
+       ORDER BY ${orderSql}, p.IDParticipante ASC
        LIMIT ${limit} OFFSET ${offset}`,
       { replacements: repl, type: QueryTypes.SELECT },
     );
@@ -1776,6 +1814,16 @@ export const listarResponsablesGestion = async (req, res) => {
       { replacements: repl, type: QueryTypes.SELECT },
     );
 
+    const orderSql = orderByWhitelist(
+      req.query,
+      {
+        documento: 'IDResponsable',
+        nombre: 'Nombre_Completo',
+        celular: 'Celular_Responsable',
+        correo: 'Correo_Responsable',
+      },
+      'Nombre_Completo ASC',
+    );
     let rows;
     try {
       rows = await sequelize.query(
@@ -1792,7 +1840,7 @@ export const listarResponsablesGestion = async (req, res) => {
            Tipo_Persona AS tipoPersona
          FROM responsables
          WHERE ${whereSql}
-         ORDER BY Nombre_Completo ASC
+         ORDER BY ${orderSql}, IDResponsable ASC
          LIMIT ${limit} OFFSET ${offset}`,
         { replacements: repl, type: QueryTypes.SELECT },
       );
@@ -1805,7 +1853,7 @@ export const listarResponsablesGestion = async (req, res) => {
            Correo_Responsable AS correo
          FROM responsables
          WHERE ${whereSql}
-         ORDER BY Nombre_Completo ASC
+         ORDER BY ${orderSql}, IDResponsable ASC
          LIMIT ${limit} OFFSET ${offset}`,
         { replacements: repl, type: QueryTypes.SELECT },
       );

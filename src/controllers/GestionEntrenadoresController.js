@@ -29,6 +29,14 @@ const parsePage = (raw) => {
   return Math.floor(n);
 };
 
+function orderByWhitelist(query, allowed, fallback) {
+  const key = String(query?.sort || '').trim();
+  const expr = allowed[key];
+  if (!expr) return fallback;
+  const dir = String(query?.dir || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC';
+  return `${expr} ${dir}`;
+}
+
 function isDuplicateKeyError(error) {
   const code = error?.original?.code || error?.parent?.code || error?.code;
   return code === 'ER_DUP_ENTRY' || Number(code) === 1062;
@@ -156,6 +164,17 @@ export const listarEntrenadoresGestion = async (req, res) => {
     );
     const total = Number(countRow?.total || 0);
 
+    const orderSql = orderByWhitelist(
+      req.query,
+      {
+        id: 'e.ID',
+        nombre: 'e.Nombre_Docente',
+        correo: 'e.Correo',
+        disciplinas: 'countAsignaciones',
+        cursos: 'countCursos',
+      },
+      'e.Nombre_Docente ASC',
+    );
     const rows = await sequelize.query(
       `SELECT e.ID AS id,
               e.Nombre_Docente AS nombre,
@@ -173,7 +192,7 @@ export const listarEntrenadoresGestion = async (req, res) => {
               ) AS countCursos
        FROM entrenadores e
        WHERE ${whereSql}
-       ORDER BY e.Nombre_Docente ASC
+       ORDER BY ${orderSql}, e.ID ASC
        LIMIT :limit OFFSET :offset`,
       { replacements: repl, type: QueryTypes.SELECT },
     );
