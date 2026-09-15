@@ -131,6 +131,65 @@ const CAUSALES_BASE = [
   'Cambio de domicilio',
 ];
 
+/** Alias conocidos → forma canónica (evita casi-duplicados en el selector). */
+const CAUSALES_ALIAS = {
+  'problema economicos': 'Problemas Económicos',
+  'problemas economico': 'Problemas Económicos',
+  'problemas economicos': 'Problemas Económicos',
+};
+
+function foldCausalKey(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function mergeCausalesUnicas(fromDb = []) {
+  const byKey = new Map();
+  for (const base of CAUSALES_BASE) {
+    const key = foldCausalKey(base);
+    if (key) byKey.set(key, base);
+  }
+  for (const raw of fromDb) {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) continue;
+    const key = foldCausalKey(trimmed);
+    if (!key) continue;
+    const aliasTarget = CAUSALES_ALIAS[key];
+    if (aliasTarget) {
+      byKey.set(foldCausalKey(aliasTarget), aliasTarget);
+      continue;
+    }
+    if (!byKey.has(key)) byKey.set(key, trimmed);
+  }
+  return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+/** Normaliza fecha de formulario/API a YYYY-MM-DD o null. */
+function normalizeSqlDate(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, '0');
+    const d = String(value.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  const s = String(value).trim();
+  if (!s) return null;
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(s);
+  if (m) return m[1];
+  const parsed = new Date(s);
+  if (Number.isNaN(parsed.getTime())) return null;
+  const y = parsed.getUTCFullYear();
+  const mo = String(parsed.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(parsed.getUTCDate()).padStart(2, '0');
+  return `${y}-${mo}-${d}`;
+}
+
 const mesVariants = (mes) => {
   const padded = String(mes || '').padStart(2, '0');
   const bare = String(Number(padded));
@@ -1598,9 +1657,7 @@ export const listarCausalesGestion = async (_req, res) => {
       { type: QueryTypes.SELECT },
     );
     const fromDb = rows.map((r) => String(r.causal || '').trim()).filter(Boolean);
-    const merged = [...new Set([...CAUSALES_BASE, ...fromDb])].sort((a, b) =>
-      a.localeCompare(b, 'es'),
-    );
+    const merged = mergeCausalesUnicas(fromDb);
     return sendSuccess(res, 200, { causales: merged }, 'Causales obtenidas');
   } catch (error) {
     return sendError(res, 500, 'Error al listar causales', error.message);
@@ -2159,6 +2216,14 @@ export const actualizarCursoGestion = async (req, res) => {
       sets.push('Linea = :linea');
       repl.linea = body.linea === '' || body.linea == null ? null : Number(body.linea);
     }
+    if (body.fechaInicio !== undefined) {
+      sets.push('Fecha_Inicio = :fechaInicio');
+      repl.fechaInicio = normalizeSqlDate(body.fechaInicio);
+    }
+    if (body.fechaFinal !== undefined) {
+      sets.push('Fecha_Final = :fechaFinal');
+      repl.fechaFinal = normalizeSqlDate(body.fechaFinal);
+    }
 
     const dayMap = [
       ['lunes', 'Lunes', 'lunes'],
@@ -2181,6 +2246,17 @@ export const actualizarCursoGestion = async (req, res) => {
       replacements: repl,
       type: QueryTypes.UPDATE,
     });
+
+    const [updated] = await sequelize.query(
+      `SELECT ID_Curso AS id,
+              Fecha_Inicio AS fechaInicio,
+              Fecha_Final AS fechaFinal
+       FROM cursos_2025
+       WHERE ID_Curso = :id
+       LIMIT 1`,
+      { replacements: { id }, type: QueryTypes.SELECT },
+    );
+
     await registrarAuditoria({
       req,
       accion: 'EDITAR',
@@ -2188,9 +2264,22 @@ export const actualizarCursoGestion = async (req, res) => {
       entidad: 'curso',
       entidadId: id,
       resumen: `Curso ${id} actualizado`,
-      despues: { ...repl },
+      despues: {
+        ...repl,
+        fechaInicio: updated?.fechaInicio ?? repl.fechaInicio,
+        fechaFinal: updated?.fechaFinal ?? repl.fechaFinal,
+      },
     });
-    return sendSuccess(res, 200, { id }, 'Curso actualizado');
+    return sendSuccess(
+      res,
+      200,
+      {
+        id,
+        fechaInicio: updated?.fechaInicio ?? null,
+        fechaFinal: updated?.fechaFinal ?? null,
+      },
+      'Curso actualizado',
+    );
   } catch (error) {
     return sendError(res, 500, 'Error al actualizar curso', error.message);
   }
@@ -2207,9 +2296,11 @@ export const crearCursoGestion = async (req, res) => {
       `INSERT INTO cursos_2025
         (ID_Curso, Nombre_del_curso, Nombre_Corto_Curso, Tipo, Estado_del_curso, Sede,
          Tarifa_Curso, Codigo_Facturacion, Actividad, Docente, Linea,
+         Fecha_Inicio, Fecha_Final,
          Lunes, Martes, \`Miércoles\`, Jueves, Viernes, \`SÁBADO\`)
        VALUES
         (:id, :nombre, :nombreCorto, :tipo, :estado, :sede, :tarifa, :codigo, :actividad, :docente, :linea,
+         :fechaInicio, :fechaFinal,
          :lunes, :martes, :miercoles, :jueves, :viernes, :sabado)`,
       {
         replacements: {
@@ -2224,6 +2315,8 @@ export const crearCursoGestion = async (req, res) => {
           actividad: body.actividad != null && body.actividad !== '' ? Number(body.actividad) : null,
           docente: emptyToNull(body.docente) ?? null,
           linea: body.linea != null && body.linea !== '' ? Number(body.linea) : null,
+          fechaInicio: normalizeSqlDate(body.fechaInicio) ?? null,
+          fechaFinal: normalizeSqlDate(body.fechaFinal) ?? null,
           lunes: dayValue(body.lunes),
           martes: dayValue(body.martes),
           miercoles: dayValue(body.miercoles),
