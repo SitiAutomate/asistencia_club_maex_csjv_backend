@@ -8,6 +8,7 @@ import {
   cargarOpcionesCatalogo,
   listarCatalogosDisponibles,
 } from '../services/gestionCatalogosService.js';
+import { ensureGestionTipoCamposIdCurso } from '../services/gestionTipoCamposService.js';
 
 const mapCampo = (row) => {
   const opciones = row.opciones_json ? safeParse(row.opciones_json) : null;
@@ -16,6 +17,7 @@ const mapCampo = (row) => {
   return {
     id: row.id,
     tipo: Number(row.tipo),
+    idCurso: row.id_curso != null ? String(row.id_curso) : '',
     campoKey: row.campo_key,
     columnaDb: row.columna_db,
     label: row.label,
@@ -109,18 +111,29 @@ export const listarOpcionesCatalogoGestion = async (req, res) => {
 
 export const listarCamposTipoGestion = async (req, res) => {
   try {
+    await ensureGestionTipoCamposIdCurso();
     const tipo = Number(req.query.tipo || req.params.tipo);
     if (!Number.isFinite(tipo) || tipo < 1) {
       return sendError(res, 400, 'Tipo inválido');
     }
     const soloActivos = String(req.query.soloActivos || 'true').toLowerCase() !== 'false';
+    const idCursoFilter =
+      req.query.idCurso != null && String(req.query.idCurso).trim() !== ''
+        ? String(req.query.idCurso).trim()
+        : null;
     const clauses = ['tipo = :tipo'];
+    const repl = { tipo };
     if (soloActivos) clauses.push('activo = 1');
+    if (idCursoFilter != null) {
+      // Admin UI: ver globales + los del curso elegido
+      clauses.push(`(id_curso = '' OR id_curso = :idCurso)`);
+      repl.idCurso = idCursoFilter;
+    }
     const rows = await sequelize.query(
       `SELECT * FROM gestion_tipo_campos
        WHERE ${clauses.join(' AND ')}
-       ORDER BY orden ASC, id ASC`,
-      { replacements: { tipo }, type: QueryTypes.SELECT },
+       ORDER BY (id_curso = '') DESC, orden ASC, id ASC`,
+      { replacements: repl, type: QueryTypes.SELECT },
     );
     return sendSuccess(res, 200, { tipo, campos: rows.map(mapCampo) }, 'Campos del tipo');
   } catch (error) {
@@ -130,11 +143,13 @@ export const listarCamposTipoGestion = async (req, res) => {
 
 export const upsertCampoTipoGestion = async (req, res) => {
   try {
+    await ensureGestionTipoCamposIdCurso();
     const body = req.body || {};
     const tipo = Number(body.tipo);
     const campoKey = String(body.campoKey || body.campo_key || '').trim();
     const columnaDb = String(body.columnaDb || body.columna_db || '').trim();
     const label = String(body.label || '').trim();
+    const idCurso = String(body.idCurso ?? body.id_curso ?? '').trim();
     if (!Number.isFinite(tipo) || !campoKey || !columnaDb || !label) {
       return sendError(res, 400, 'tipo, campoKey, columnaDb y label son obligatorios');
     }
@@ -146,6 +161,7 @@ export const upsertCampoTipoGestion = async (req, res) => {
     const hasCatalogo = Boolean(body.catalogo || (optsBuilt.json && safeParse(optsBuilt.json)?.catalogo));
     const payload = {
       tipo,
+      idCurso,
       campoKey,
       columnaDb,
       label,
@@ -165,7 +181,7 @@ export const upsertCampoTipoGestion = async (req, res) => {
     if (id && Number.isFinite(id)) {
       await sequelize.query(
         `UPDATE gestion_tipo_campos SET
-           tipo = :tipo, campo_key = :campoKey, columna_db = :columnaDb, label = :label,
+           tipo = :tipo, id_curso = :idCurso, campo_key = :campoKey, columna_db = :columnaDb, label = :label,
            tipo_input = :tipoInput, visible_lista = :visibleLista, visible_detalle = :visibleDetalle,
            visible_form = :visibleForm, requerido = :requerido, orden = :orden,
            opciones_json = :opcionesJson, activo = :activo
@@ -175,10 +191,10 @@ export const upsertCampoTipoGestion = async (req, res) => {
     } else {
       const result = await sequelize.query(
         `INSERT INTO gestion_tipo_campos
-          (tipo, campo_key, columna_db, label, tipo_input, visible_lista, visible_detalle,
+          (tipo, id_curso, campo_key, columna_db, label, tipo_input, visible_lista, visible_detalle,
            visible_form, requerido, orden, opciones_json, activo)
          VALUES
-          (:tipo, :campoKey, :columnaDb, :label, :tipoInput, :visibleLista, :visibleDetalle,
+          (:tipo, :idCurso, :campoKey, :columnaDb, :label, :tipoInput, :visibleLista, :visibleDetalle,
            :visibleForm, :requerido, :orden, :opcionesJson, :activo)
          ON DUPLICATE KEY UPDATE
            columna_db = VALUES(columna_db), label = VALUES(label), tipo_input = VALUES(tipo_input),
@@ -195,8 +211,8 @@ export const upsertCampoTipoGestion = async (req, res) => {
       accion: id ? 'EDITAR' : 'CREAR',
       modulo: GESTION_MODULOS.TIPO_CAMPOS,
       entidad: 'gestion_tipo_campos',
-      entidadId: savedId || `${tipo}:${campoKey}`,
-      resumen: `${label} (tipo ${tipo})`,
+      entidadId: savedId || `${tipo}:${campoKey}:${idCurso || '*'}`,
+      resumen: `${label} (tipo ${tipo}${idCurso ? ` · curso ${idCurso}` : ' · todos'})`,
       despues: payload,
     });
 

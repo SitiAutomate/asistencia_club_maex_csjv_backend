@@ -136,6 +136,33 @@ const CAUSALES_ALIAS = {
   'problema economicos': 'Problemas Económicos',
   'problemas economico': 'Problemas Económicos',
   'problemas economicos': 'Problemas Económicos',
+  'incapacidad medica': 'Incapacidad médica',
+  'retiro colegio': 'Retiro del Colegio',
+  'retiro del colegio': 'Retiro del Colegio',
+  'retiro de colegio': 'Retiro del Colegio',
+  'dificil transporte': 'Difícil Transporte',
+  'cambio domicilio': 'Cambio de domicilio',
+  'cambio de domicilio': 'Cambio de domicilio',
+  'desmotivacion': 'Desmotivación',
+  'motivos personales': 'Motivos personales',
+  'motivo personal': 'Motivos personales',
+  'sin firmar contrato': 'Sin Firmar Contrato',
+  'cartera morosa': 'Cartera Morosa',
+  'cruce programas': 'Cruce de programas',
+  'cruce de programas': 'Cruce de programas',
+  'cambio curso': 'Cambio de curso',
+  'cambio de curso': 'Cambio de curso',
+  'cambio nivel': 'Cambio de nivel',
+  'cambio de nivel': 'Cambio de nivel',
+  'cambio club': 'Cambio de club',
+  'cambio de club': 'Cambio de club',
+  'inconformidad con entrenador': 'Inconformidad con el entrenador',
+  'inconformidad el entrenador': 'Inconformidad con el entrenador',
+  'adaptacion curso': 'Adaptación al curso',
+  'adaptacion al curso': 'Adaptación al curso',
+  'enfermedad que le impide continuar': 'Enfermedad que le impide continuar',
+  'problemas de salud': 'Enfermedad que le impide continuar',
+  'problema de salud': 'Enfermedad que le impide continuar',
 };
 
 function foldCausalKey(value) {
@@ -143,24 +170,34 @@ function foldCausalKey(value) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
+    .replace(/\b(de|del|la|el|los|las|un|una|al|a)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 function mergeCausalesUnicas(fromDb = []) {
   const byKey = new Map();
+  const baseByKey = new Map();
   for (const base of CAUSALES_BASE) {
     const key = foldCausalKey(base);
-    if (key) byKey.set(key, base);
+    if (!key) continue;
+    byKey.set(key, base);
+    baseByKey.set(key, base);
   }
   for (const raw of fromDb) {
     const trimmed = String(raw || '').trim();
     if (!trimmed) continue;
     const key = foldCausalKey(trimmed);
     if (!key) continue;
+    if (baseByKey.has(key)) {
+      byKey.set(key, baseByKey.get(key));
+      continue;
+    }
     const aliasTarget = CAUSALES_ALIAS[key];
     if (aliasTarget) {
-      byKey.set(foldCausalKey(aliasTarget), aliasTarget);
+      const aliasKey = foldCausalKey(aliasTarget);
+      byKey.set(aliasKey, baseByKey.get(aliasKey) || aliasTarget);
       continue;
     }
     if (!byKey.has(key)) byKey.set(key, trimmed);
@@ -218,6 +255,26 @@ const emptyToNull = (value) => {
   const s = String(value ?? '').trim();
   return s === '' ? null : s;
 };
+
+/** Query param → lista (soporta "a,b" o arrays Express). */
+function parseMulti(raw) {
+  if (raw == null || raw === '') return [];
+  if (Array.isArray(raw)) return raw.flatMap((v) => parseMulti(v));
+  return String(raw)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function pushInClause(clauses, repl, columnSql, values, prefix) {
+  const list = [...new Set(values.map((v) => String(v).trim()).filter(Boolean))];
+  if (!list.length) return;
+  const keys = list.map((_, i) => `:${prefix}${i}`);
+  clauses.push(`${columnSql} IN (${keys.join(', ')})`);
+  list.forEach((v, i) => {
+    repl[`${prefix}${i}`] = v;
+  });
+}
 
 /** ORDER BY solo desde whitelist (nunca interpolar el query del cliente). */
 function orderByWhitelist(query, allowed, fallback) {
@@ -332,12 +389,15 @@ function buildListFilters(query, { omit = [] } = {}) {
   const anio = /^\d{4}$/.test(String(query.anio || '').trim())
     ? Number(query.anio)
     : anioBogota;
-  const mes = query.mes != null && String(query.mes).trim() !== '' ? String(query.mes).trim() : '';
-  const estado = query.estado != null ? String(query.estado).trim().toUpperCase() : '';
-  const sede = query.sede != null ? String(query.sede).trim() : '';
+  const meses = parseMulti(query.mes ?? query.meses);
+  const estados = parseMulti(query.estado ?? query.estados)
+    .map((s) => String(s).trim().toUpperCase())
+    .filter((s) => s && s !== 'TODOS');
+  const sedes = parseMulti(query.sede ?? query.sedes);
   const q = query.q != null ? String(query.q).trim() : '';
-  const idCurso = query.idCurso != null ? String(query.idCurso).trim() : '';
-  const actividad = query.actividad != null ? String(query.actividad).trim() : '';
+  const idCursos = parseMulti(query.idCurso ?? query.idCursos);
+  const actividades = parseMulti(query.actividad ?? query.actividades);
+  const lineas = parseMulti(query.linea ?? query.lineas);
   const categoria = query.categoria != null ? String(query.categoria).trim() : '';
   const excludeTipo1 = String(query.excludeTipo1 || '').toLowerCase() === 'true';
   /** YYYY-MM-DD (calendario local del usuario / Bogotá). Inclusivo en ambos extremos. */
@@ -372,32 +432,43 @@ function buildListFilters(query, { omit = [] } = {}) {
     repl.anio = anio;
   }
 
-  if (!skip.has('mes') && mes && !excludeTipo1) {
-    const variants = mesVariants(mes);
-    clauses.push(`i.Mes IN (${variants.map((_, idx) => `:mes${idx}`).join(', ')})`);
-    variants.forEach((v, idx) => {
-      repl[`mes${idx}`] = v;
-    });
+  if (!skip.has('mes') && meses.length && !excludeTipo1) {
+    const qLooksLikeDoc =
+      q && /^\d{5,}$/.test(String(q).replace(/\D/g, '')) && String(q).replace(/\D/g, '').length >= 5;
+    if (!qLooksLikeDoc) {
+      const variants = [...new Set(meses.flatMap((m) => mesVariants(m)))];
+      pushInClause(clauses, repl, 'i.Mes', variants, 'mes');
+    }
   }
 
-  if (!skip.has('estado') && estado && estado !== 'TODOS') {
-    clauses.push('UPPER(TRIM(i.Estado)) = :estado');
-    repl.estado = estado;
+  if (!skip.has('estado') && estados.length) {
+    pushInClause(
+      clauses,
+      repl,
+      'UPPER(TRIM(i.Estado))',
+      estados,
+      'estado',
+    );
   }
 
-  if (!skip.has('sede') && sede) {
-    clauses.push('i.Sede = :sede');
-    repl.sede = sede;
+  if (!skip.has('sede') && sedes.length) {
+    pushInClause(clauses, repl, 'i.Sede', sedes, 'sede');
   }
 
-  if (!skip.has('idCurso') && idCurso) {
-    clauses.push('i.IDCurso = :idCurso');
-    repl.idCurso = idCurso;
+  if (!skip.has('idCurso') && idCursos.length) {
+    pushInClause(clauses, repl, 'i.IDCurso', idCursos, 'idCurso');
   }
 
-  if (!skip.has('actividad') && actividad) {
-    clauses.push('c.Actividad = :actividadFiltro');
-    repl.actividadFiltro = Number(actividad) || actividad;
+  if (!skip.has('actividad') && actividades.length) {
+    const acts = actividades.map((a) => Number(a) || a);
+    pushInClause(clauses, repl, 'c.Actividad', acts, 'act');
+    repl.actividadFiltro = acts[0];
+  }
+
+  if (!skip.has('linea') && lineas.length) {
+    const lins = lineas.map((a) => Number(a) || a);
+    pushInClause(clauses, repl, 'c.Linea', lins, 'lin');
+    repl.lineaFiltro = lins[0];
   }
 
   if (!skip.has('categoria') && categoria) {
@@ -406,10 +477,30 @@ function buildListFilters(query, { omit = [] } = {}) {
   }
 
   if (!skip.has('q') && q) {
-    clauses.push(
-      `(i.validador_participante LIKE :searchQ OR i.validador_responsable LIKE :searchQ OR p.Nombre_Completo LIKE :searchQ OR c.Nombre_del_curso LIKE :searchQ OR c.Nombre_Corto_Curso LIKE :searchQ OR i.IDCurso LIKE :searchQ OR i.categoria LIKE :searchQ OR p.Grupo LIKE :searchQ)`,
-    );
+    const digits = String(q).replace(/\D/g, '');
+    const parts = [
+      'i.validador_participante LIKE :searchQ',
+      'i.validador_responsable LIKE :searchQ',
+      'p.Nombre_Completo LIKE :searchQ',
+      'r.Nombre_Completo LIKE :searchQ',
+      'c.Nombre_del_curso LIKE :searchQ',
+      'c.Nombre_Corto_Curso LIKE :searchQ',
+      'i.IDCurso LIKE :searchQ',
+      'i.categoria LIKE :searchQ',
+      'p.Grupo LIKE :searchQ',
+    ];
     repl.searchQ = `%${q}%`;
+    // Si parece documento, también comparar solo dígitos (evita fallos por puntos/espacios).
+    if (digits.length >= 5) {
+      parts.push(
+        `REPLACE(REPLACE(REPLACE(REPLACE(i.validador_participante, '.', ''), '-', ''), ' ', ''), ',', '') LIKE :searchDigits`,
+      );
+      parts.push(
+        `REPLACE(REPLACE(REPLACE(REPLACE(i.validador_responsable, '.', ''), '-', ''), ' ', ''), ',', '') LIKE :searchDigits`,
+      );
+      repl.searchDigits = `%${digits}%`;
+    }
+    clauses.push(`(${parts.join(' OR ')})`);
   }
 
   // Columna DATE: comparar por calendario (YYYY-MM-DD). <= hasta incluye ese día completo.
@@ -424,35 +515,48 @@ function buildListFilters(query, { omit = [] } = {}) {
     }
   }
 
-  const needsCursoJoin = Boolean(repl.actividadFiltro != null || repl.searchQ);
+  const needsCursoJoin = Boolean(
+    repl.actividadFiltro != null || repl.lineaFiltro != null || repl.searchQ,
+  );
   const needsParticipanteJoin = Boolean(repl.categoriaQ != null || repl.searchQ);
+  const needsResponsableJoin = Boolean(repl.searchQ);
 
   return {
     clauses,
     repl,
     anio,
     tipo,
-    mes,
-    estado,
-    sede,
+    mes: meses[0] || '',
+    meses,
+    estado: estados[0] || '',
+    estados,
+    sede: sedes[0] || '',
+    sedes,
     q,
-    idCurso,
-    actividad,
+    idCurso: idCursos[0] || '',
+    idCursos,
+    actividad: actividades[0] || '',
+    actividades,
+    lineas,
     categoria,
     fechaDesde,
     fechaHasta,
     needsCursoJoin,
     needsParticipanteJoin,
+    needsResponsableJoin,
   };
 }
 
-function metaFromSqlJoins({ needsCursoJoin, needsParticipanteJoin }) {
+function metaFromSqlJoins({ needsCursoJoin, needsParticipanteJoin, needsResponsableJoin }) {
   const joins = [];
   if (needsCursoJoin) {
     joins.push('LEFT JOIN cursos_2025 c ON c.ID_Curso = i.IDCurso');
   }
   if (needsParticipanteJoin) {
     joins.push('LEFT JOIN participantes p ON p.IDParticipante = i.validador_participante');
+  }
+  if (needsResponsableJoin) {
+    joins.push('LEFT JOIN responsables r ON r.IDResponsable = i.validador_responsable');
   }
   return joins.join('\n       ');
 }
@@ -465,13 +569,14 @@ export const listarInscripcionesGestion = async (req, res) => {
       ? parseLimit(req.query.limit, 20000, { max: 50000 })
       : parseLimit(req.query.limit);
     const offset = exportAll ? 0 : (page - 1) * limit;
-    const { clauses, repl, anio, tipo } = buildListFilters(req.query);
+    const { clauses, repl, anio, tipo, idCursos } = buildListFilters(req.query);
     const whereSql = clauses.join(' AND ');
 
     const countRows = await sequelize.query(
       `SELECT COUNT(*) AS total
        FROM inscripciones_1 i
        LEFT JOIN participantes p ON p.IDParticipante = i.validador_participante
+       LEFT JOIN responsables r ON r.IDResponsable = i.validador_responsable
        LEFT JOIN cursos_2025 c ON c.ID_Curso = i.IDCurso
        WHERE ${whereSql}`,
       { replacements: repl, type: QueryTypes.SELECT },
@@ -479,9 +584,15 @@ export const listarInscripcionesGestion = async (req, res) => {
     const total = Number(countRows[0]?.total || 0);
 
     const tipoNum = Number(tipo);
+    const singleCurso = idCursos?.length === 1 ? idCursos[0] : null;
     const camposLista =
       Number.isFinite(tipoNum) && tipoNum > 1
-        ? (await getCamposTipo(tipoNum)).filter((c) => Number(c.visible_lista))
+        ? (
+            await getCamposTipo(tipoNum, {
+              idCurso: singleCurso,
+              includeAllCourseFields: !singleCurso,
+            })
+          ).filter((c) => Number(c.visible_lista))
         : [];
     const extraSelect =
       camposLista.length > 0
@@ -1773,6 +1884,29 @@ export const metaFiltrosGestion = async (req, res) => {
       { replacements: actFilters.repl, type: QueryTypes.SELECT },
     );
 
+    const linFilters = buildListFilters(req.query, { omit: ['linea'] });
+    const linJoins = [
+      'LEFT JOIN cursos_2025 c ON c.ID_Curso = i.IDCurso',
+      linFilters.needsParticipanteJoin
+        ? 'LEFT JOIN participantes p ON p.IDParticipante = i.validador_participante'
+        : '',
+      'INNER JOIN linea l ON l.IDLinea = c.Linea',
+    ]
+      .filter(Boolean)
+      .join('\n       ');
+    const lineasRows = await sequelize.query(
+      `SELECT
+         l.IDLinea AS id,
+         l.Nombre_Linea AS nombre,
+         COUNT(*) AS total
+       FROM inscripciones_1 i
+       ${linJoins}
+       WHERE ${[...linFilters.clauses, 'c.Linea IS NOT NULL'].join(' AND ')}
+       GROUP BY l.IDLinea, l.Nombre_Linea
+       ORDER BY l.Nombre_Linea ASC`,
+      { replacements: linFilters.repl, type: QueryTypes.SELECT },
+    );
+
     return sendSuccess(
       res,
       200,
@@ -1790,6 +1924,11 @@ export const metaFiltrosGestion = async (req, res) => {
               : null,
         })),
         actividades: actividadesRows.map((r) => ({
+          id: String(r.id),
+          nombre: r.nombre,
+          total: Number(r.total || 0),
+        })),
+        lineas: lineasRows.map((r) => ({
           id: String(r.id),
           nombre: r.nombre,
           total: Number(r.total || 0),
@@ -1813,13 +1952,21 @@ export const listarParticipantesGestion = async (req, res) => {
     const repl = {};
     if (q) {
       clauses.push(
-        `(p.IDParticipante LIKE :searchQ OR p.Nombre_Completo LIKE :searchQ OR p.Grupo LIKE :searchQ)`,
+        `(p.IDParticipante LIKE :searchQ
+          OR p.Nombre_Completo LIKE :searchQ
+          OR p.Grupo LIKE :searchQ
+          OR p.IDResponsable LIKE :searchQ
+          OR r.IDResponsable LIKE :searchQ
+          OR r.Nombre_Completo LIKE :searchQ)`,
       );
       repl.searchQ = `%${q}%`;
     }
     const whereSql = clauses.join(' AND ');
     const [countRow] = await sequelize.query(
-      `SELECT COUNT(*) AS total FROM participantes p WHERE ${whereSql}`,
+      `SELECT COUNT(*) AS total
+       FROM participantes p
+       LEFT JOIN responsables r ON r.IDResponsable = p.IDResponsable
+       WHERE ${whereSql}`,
       { replacements: repl, type: QueryTypes.SELECT },
     );
     const orderSql = orderByWhitelist(
