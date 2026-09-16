@@ -168,12 +168,12 @@ function mergeCausalesUnicas(fromDb = []) {
   return [...byKey.values()].sort((a, b) => a.localeCompare(b, 'es'));
 }
 
-/** Normaliza fecha de formulario/API a YYYY-MM-DD o null. */
-function normalizeSqlDate(value) {
+function normalizeSqlDate(value, { minYear = 1990, maxYear = 2100 } = {}) {
   if (value === undefined) return undefined;
   if (value === null) return null;
   if (value instanceof Date && !Number.isNaN(value.getTime())) {
     const y = value.getFullYear();
+    if (y < minYear || y > maxYear) return null;
     const m = String(value.getMonth() + 1).padStart(2, '0');
     const d = String(value.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
@@ -181,10 +181,15 @@ function normalizeSqlDate(value) {
   const s = String(value).trim();
   if (!s) return null;
   const m = /^(\d{4}-\d{2}-\d{2})/.exec(s);
-  if (m) return m[1];
+  if (m) {
+    const y = Number(m[1].slice(0, 4));
+    if (y < minYear || y > maxYear) return null;
+    return m[1];
+  }
   const parsed = new Date(s);
   if (Number.isNaN(parsed.getTime())) return null;
   const y = parsed.getUTCFullYear();
+  if (y < minYear || y > maxYear) return null;
   const mo = String(parsed.getUTCMonth() + 1).padStart(2, '0');
   const d = String(parsed.getUTCDate()).padStart(2, '0');
   return `${y}-${mo}-${d}`;
@@ -256,9 +261,14 @@ const mapListRow = (row, camposLista = []) => {
     fechaNacimiento: row.fecha_nacimiento || null,
     documentoResponsable: row.validador_responsable,
     nombreResponsable: row.nombre_responsable || '',
+    tipoDocumentoResponsable: row.tipo_doc_responsable || '',
     celularResponsable: row.celular_responsable || '',
     correoResponsable: row.correo_responsable || '',
     costoCurso: row.Tarifa_Curso ?? row.tarifa_curso ?? '',
+    actividadId: row.Actividad ?? row.actividad_id ?? null,
+    nombreActividad: row.nombre_actividad || row.Nombre_Actividad || '',
+    lineaId: row.Linea ?? row.linea_id ?? null,
+    nombreLinea: row.nombre_linea || row.Nombre_Linea || '',
   };
   if (!camposLista.length) {
     base.camposExtra = [];
@@ -508,9 +518,14 @@ export const listarInscripcionesGestion = async (req, res) => {
          c.Nombre_del_curso AS nombre_curso,
          c.Codigo_Facturacion,
          c.Tarifa_Curso,
+         c.Actividad AS actividad_id,
+         c.Linea AS linea_id,
+         a.Nombre_Actividad AS nombre_actividad,
+         l.Nombre_Linea AS nombre_linea,
          p.Nombre_Completo AS nombre_participante,
          p.Fecha_Nacimiento AS fecha_nacimiento,
          r.Nombre_Completo AS nombre_responsable,
+         r.tipo_identificacion AS tipo_doc_responsable,
          r.Celular_Responsable AS celular_responsable,
          r.Correo_Responsable AS correo_responsable
          ${extraSelect}
@@ -518,6 +533,8 @@ export const listarInscripcionesGestion = async (req, res) => {
        LEFT JOIN participantes p ON p.IDParticipante = i.validador_participante
        LEFT JOIN responsables r ON r.IDResponsable = i.validador_responsable
        LEFT JOIN cursos_2025 c ON c.ID_Curso = i.IDCurso
+       LEFT JOIN actividades a ON a.IDActividad = c.Actividad
+       LEFT JOIN linea l ON l.IDLinea = c.Linea
        WHERE ${whereSql}
        ORDER BY ${orderByWhitelist(
          req.query,
@@ -895,12 +912,12 @@ export const crearInscripcionGestion = async (req, res) => {
     const observaciones = emptyToNull(body.observaciones ?? body.OBSERVACION) ?? null;
     const observacionFacturacion =
       emptyToNull(body.observacionFacturacion ?? body.Observacion_Facturacion) ?? null;
-    const fechaIngreso =
-      emptyToNull(body.fechaIngresoNuevoTransporte ?? body.FechaIngresoNuevoTransporte) ?? null;
     let fechaRetiro =
-      emptyToNull(body.fechaRetiro ?? body.FechaRetiro ?? body.FechaRetiroExtraclase) ?? null;
+      normalizeSqlDate(body.fechaRetiro ?? body.FechaRetiro ?? body.FechaRetiroExtraclase) ?? null;
     const fechaRetiroTransporte =
-      emptyToNull(body.fechaRetiroTransporte ?? body.FechaRetiroTransporte) ?? null;
+      normalizeSqlDate(body.fechaRetiroTransporte ?? body.FechaRetiroTransporte) ?? null;
+    const fechaIngreso =
+      normalizeSqlDate(body.fechaIngresoNuevoTransporte ?? body.FechaIngresoNuevoTransporte) ?? null;
     let causalRetiro = emptyToNull(body.causalRetiro ?? body.CausalDeRetiro) ?? null;
 
     if (estado === 'RETIRADO') {
@@ -1289,11 +1306,11 @@ export const actualizarInscripcionGestion = async (req, res) => {
       body.fechaRetiro !== undefined ||
       body.FechaRetiro !== undefined ||
       body.FechaRetiroExtraclase !== undefined
-        ? emptyToNull(body.fechaRetiro ?? body.FechaRetiro ?? body.FechaRetiroExtraclase)
+        ? normalizeSqlDate(body.fechaRetiro ?? body.FechaRetiro ?? body.FechaRetiroExtraclase)
         : undefined;
     const fechaRetiroTransporteIncoming =
       body.fechaRetiroTransporte !== undefined || body.FechaRetiroTransporte !== undefined
-        ? emptyToNull(body.fechaRetiroTransporte ?? body.FechaRetiroTransporte)
+        ? normalizeSqlDate(body.fechaRetiroTransporte ?? body.FechaRetiroTransporte)
         : undefined;
 
     if (estadoFinal === 'RETIRADO') {
@@ -1354,7 +1371,7 @@ export const actualizarInscripcionGestion = async (req, res) => {
       setIf(
         '`FECHA INGRESO NUEVO TRANSPORTE`',
         'fechaIngreso',
-        emptyToNull(body.fechaIngresoNuevoTransporte ?? body.FechaIngresoNuevoTransporte),
+        normalizeSqlDate(body.fechaIngresoNuevoTransporte ?? body.FechaIngresoNuevoTransporte),
       );
     }
     if (fechaRetiroIncoming !== undefined) {
