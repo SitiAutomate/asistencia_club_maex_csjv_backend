@@ -840,11 +840,14 @@ export const listarCursosGestion = async (req, res) => {
       repl.q = `%${q}%`;
     }
 
-    const [pActual, pSiguiente] = periodosInscripcionPermitidos();
-    repl.cuposAnio1 = pActual.anio;
-    repl.cuposMes1 = pActual.mesNum;
-    repl.cuposAnio2 = pSiguiente.anio;
-    repl.cuposMes2 = pSiguiente.mesNum;
+    const periodosCupos = periodosInscripcionPermitidos();
+    periodosCupos.forEach((p, i) => {
+      repl[`cuposAnio${i + 1}`] = p.anio;
+      repl[`cuposMes${i + 1}`] = p.mesNum;
+    });
+    const cuposPeriodoSql = periodosCupos
+      .map((_, i) => `(i.año = :cuposAnio${i + 1} AND CAST(i.Mes AS UNSIGNED) = :cuposMes${i + 1})`)
+      .join('\n             OR ');
 
     const rows = await sequelize.query(
       `SELECT
@@ -885,8 +888,7 @@ export const listarCursosGestion = async (req, res) => {
          FROM inscripciones_1 i
          WHERE TRIM(i.Estado) IN ('CONFIRMADO', 'ACTIVO', 'INCAPACITADO')
            AND (
-             (i.año = :cuposAnio1 AND CAST(i.Mes AS UNSIGNED) = :cuposMes1)
-             OR (i.año = :cuposAnio2 AND CAST(i.Mes AS UNSIGNED) = :cuposMes2)
+             ${cuposPeriodoSql}
            )
          GROUP BY TRIM(i.IDCurso)
        ) cup ON cup.IDCurso = c.ID_Curso
@@ -909,10 +911,7 @@ export const listarCursosGestion = async (req, res) => {
               : null,
         })),
         meta: {
-          periodoCupos: [
-            { anio: pActual.anio, mes: pActual.mes },
-            { anio: pSiguiente.anio, mes: pSiguiente.mes },
-          ],
+          periodoCupos: periodosCupos.map((p) => ({ anio: p.anio, mes: p.mes })),
         },
       },
       'Cursos obtenidos',
@@ -941,9 +940,11 @@ export const obtenerParticipanteGestion = async (req, res) => {
          p.IDResponsable AS idResponsable,
          p.interno_externo AS internoExterno,
          pad.\`Nombre del padre\` AS nombrePadre,
+         pad.\`Documento padre\` AS documentoPadre,
          pad.\`Celular padre\` AS celularPadre,
          pad.\`E-mail padre\` AS emailPadre,
          pad.\`Nombre de la madre\` AS nombreMadre,
+         pad.\`Documento madre\` AS documentoMadre,
          pad.\`Celular madre\` AS celularMadre,
          pad.\`E-mail madre\` AS emailMadre,
          r.Nombre_Completo AS nombreResponsable,

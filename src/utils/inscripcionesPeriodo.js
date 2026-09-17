@@ -36,17 +36,21 @@ export function anioMesBogota() {
   return { anio: y, mes: m, mesNum: Number(m) };
 }
 
-/** Mes actual y siguiente (dic → ene del año siguiente). */
+/** Mes actual y los dos siguientes (dic → ene/feb del año siguiente). */
 export function periodosInscripcionPermitidos() {
   const { anio, mesNum } = anioMesBogota();
-  const actual = { anio, mes: String(mesNum).padStart(2, '0'), mesNum };
-  let nextAnio = anio;
-  let nextMes = mesNum + 1;
-  if (nextMes > 12) {
-    nextMes = 1;
-    nextAnio = anio + 1;
+  const out = [];
+  let a = anio;
+  let m = mesNum;
+  for (let i = 0; i < 3; i += 1) {
+    out.push({ anio: a, mes: String(m).padStart(2, '0'), mesNum: m });
+    m += 1;
+    if (m > 12) {
+      m = 1;
+      a += 1;
+    }
   }
-  return [actual, { anio: nextAnio, mes: String(nextMes).padStart(2, '0'), mesNum: nextMes }];
+  return out;
 }
 
 export function isPeriodoInscripcionPermitido(anio, mes) {

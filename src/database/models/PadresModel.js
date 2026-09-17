@@ -12,6 +12,10 @@ Padres.init(
             type: DataTypes.STRING,
             field: 'Nombre del padre',
         },
+        documentoPadre: {
+            type: DataTypes.STRING,
+            field: 'Documento padre',
+        },
         emailPadre: {
             type: DataTypes.STRING,
             field: 'E-mail padre',
@@ -23,6 +27,10 @@ Padres.init(
         nombreMadre: {
             type: DataTypes.STRING,
             field: 'Nombre de la madre',
+        },
+        documentoMadre: {
+            type: DataTypes.STRING,
+            field: 'Documento madre',
         },
         emailMadre: {
             type: DataTypes.STRING,
