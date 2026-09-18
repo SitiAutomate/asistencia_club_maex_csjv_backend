@@ -2389,6 +2389,18 @@ export const actualizarCursoGestion = async (req, res) => {
       sets.push('Fecha_Final = :fechaFinal');
       repl.fechaFinal = normalizeSqlDate(body.fechaFinal);
     }
+    if (body.cuposMinimos !== undefined) {
+      sets.push('Cupos_minimos = :cuposMinimos');
+      const raw = body.cuposMinimos;
+      repl.cuposMinimos =
+        raw === '' || raw == null ? null : String(raw).replace(/\D/g, '').slice(0, 10) || null;
+    }
+    if (body.cuposMaximos !== undefined) {
+      sets.push('Cupos_maximos = :cuposMaximos');
+      const raw = body.cuposMaximos;
+      repl.cuposMaximos =
+        raw === '' || raw == null ? null : String(raw).replace(/\D/g, '').slice(0, 3) || null;
+    }
 
     const dayMap = [
       ['lunes', 'Lunes', 'lunes'],
@@ -2461,10 +2473,12 @@ export const crearCursoGestion = async (req, res) => {
       `INSERT INTO cursos_2025
         (ID_Curso, Nombre_del_curso, Nombre_Corto_Curso, Tipo, Estado_del_curso, Sede,
          Tarifa_Curso, Codigo_Facturacion, Actividad, Docente, Linea,
+         Cupos_minimos, Cupos_maximos,
          Fecha_Inicio, Fecha_Final,
          Lunes, Martes, \`Miércoles\`, Jueves, Viernes, \`SÁBADO\`)
        VALUES
         (:id, :nombre, :nombreCorto, :tipo, :estado, :sede, :tarifa, :codigo, :actividad, :docente, :linea,
+         :cuposMinimos, :cuposMaximos,
          :fechaInicio, :fechaFinal,
          :lunes, :martes, :miercoles, :jueves, :viernes, :sabado)`,
       {
@@ -2480,6 +2494,14 @@ export const crearCursoGestion = async (req, res) => {
           actividad: body.actividad != null && body.actividad !== '' ? Number(body.actividad) : null,
           docente: emptyToNull(body.docente) ?? null,
           linea: body.linea != null && body.linea !== '' ? Number(body.linea) : null,
+          cuposMinimos:
+            body.cuposMinimos === '' || body.cuposMinimos == null
+              ? null
+              : String(body.cuposMinimos).replace(/\D/g, '').slice(0, 10) || null,
+          cuposMaximos:
+            body.cuposMaximos === '' || body.cuposMaximos == null
+              ? null
+              : String(body.cuposMaximos).replace(/\D/g, '').slice(0, 3) || null,
           fechaInicio: normalizeSqlDate(body.fechaInicio) ?? null,
           fechaFinal: normalizeSqlDate(body.fechaFinal) ?? null,
           lunes: dayValue(body.lunes),

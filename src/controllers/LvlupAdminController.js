@@ -141,11 +141,25 @@ export const listarGruposAdminLvlup = async (req, res) => {
       clauses.push('g.mes = :mes');
       repl.mes = mes;
     }
+
+    let inscritosSelect = '0 AS inscritos';
+    try {
+      const cols = await sequelize.query(
+        `SHOW COLUMNS FROM inscripciones_1 LIKE 'grupo_lvlup_id'`,
+        { type: QueryTypes.SELECT },
+      );
+      if (cols?.length) {
+        inscritosSelect = `(SELECT COUNT(*) FROM inscripciones_1 i
+                WHERE i.Tipo = 4 AND i.grupo_lvlup_id = g.id) AS inscritos`;
+      }
+    } catch {
+      /* columna aún no migrada en este entorno */
+    }
+
     const rows = await sequelize.query(
       `SELECT g.id, g.codigo, g.nombre, g.sede, g.id_curso AS idCurso, g.id_asignatura AS idAsignatura,
               a.Asignatura AS nombreAsignatura, g.anio, g.mes, g.estado,
-              (SELECT COUNT(*) FROM inscripciones_1 i
-                WHERE i.Tipo = 4 AND i.grupo_lvlup_id = g.id) AS inscritos
+              ${inscritosSelect}
        FROM grupos_lvlup g
        LEFT JOIN asignaturas a ON a.IDAsignatura = g.id_asignatura
        WHERE ${clauses.join(' AND ')}
@@ -154,7 +168,38 @@ export const listarGruposAdminLvlup = async (req, res) => {
     );
     return sendSuccess(res, 200, { grupos: rows }, 'Grupos obtenidos');
   } catch (error) {
-    return sendError(res, 500, 'Error al listar grupos', error.message);
+    // Fallback sin join/subconsulta si el esquema parcial aún no está migrado.
+    try {
+      if (!requireAdmin(req, res)) return;
+      const anio = Number(req.query.anio);
+      const mes = Number(req.query.mes);
+      const clauses = ['1=1'];
+      const repl = {};
+      if (Number.isFinite(anio) && anio > 2000) {
+        clauses.push('anio = :anio');
+        repl.anio = anio;
+      }
+      if (Number.isFinite(mes) && mes >= 1 && mes <= 12) {
+        clauses.push('mes = :mes');
+        repl.mes = mes;
+      }
+      const rows = await sequelize.query(
+        `SELECT id, codigo, nombre, sede, id_curso AS idCurso, id_asignatura AS idAsignatura,
+                NULL AS nombreAsignatura, anio, mes, estado, 0 AS inscritos
+         FROM grupos_lvlup
+         WHERE ${clauses.join(' AND ')}
+         ORDER BY anio DESC, mes DESC, nombre ASC`,
+        { replacements: repl, type: QueryTypes.SELECT },
+      );
+      return sendSuccess(res, 200, { grupos: rows }, 'Grupos obtenidos');
+    } catch (fallbackError) {
+      return sendError(
+        res,
+        500,
+        'Error al listar grupos',
+        fallbackError.message || error.message,
+      );
+    }
   }
 };
 
