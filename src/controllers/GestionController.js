@@ -3,7 +3,6 @@ import { sequelize } from '../database/sequelize.js';
 import { sendError, sendSuccess, handleError } from '../utils/responseHandler.js';
 import {
   anioMesBogota,
-  isPeriodoInscripcionPermitido,
   periodosInscripcionPermitidos,
 } from '../utils/inscripcionesPeriodo.js';
 import { registrarAuditoria, buildCambios, resumenFromCambios } from '../services/auditoriaAdminService.js';
@@ -1055,12 +1054,9 @@ export const crearInscripcionGestion = async (req, res) => {
       );
     }
 
-    if (!isPeriodoInscripcionPermitido(anio, mes)) {
-      return sendError(
-        res,
-        400,
-        'Solo se pueden crear inscripciones para el mes actual o el siguiente (en diciembre incluye enero del año siguiente)',
-      );
+    const mesNorm = String(mes).padStart(2, '0');
+    if (!/^(0[1-9]|1[0-2])$/.test(mesNorm) || anio < 2000 || anio > 2100) {
+      return sendError(res, 400, 'Mes o año inválido');
     }
 
     const [curso] = await sequelize.query(
@@ -1105,7 +1101,7 @@ export const crearInscripcionGestion = async (req, res) => {
           transporte,
           sede,
           estado,
-          mes,
+          mes: mesNorm,
           anio,
           uniqueId,
           nombreCurso: curso.Nombre_del_curso || null,
