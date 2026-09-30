@@ -255,6 +255,18 @@ const emptyToNull = (value) => {
   return s === '' ? null : s;
 };
 
+/** Primera clave presente en body (incluye null explícito; no usa ??). */
+function pickBody(body, ...keys) {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(body || {}, key)) return body[key];
+  }
+  return undefined;
+}
+
+function bodyHas(body, ...keys) {
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(body || {}, key));
+}
+
 /** Query param → lista (soporta "a,b" o arrays Express). */
 function parseMulti(raw) {
   if (raw == null || raw === '') return [];
@@ -1406,20 +1418,19 @@ export const actualizarInscripcionGestion = async (req, res) => {
       setIf('Estado', 'estado', estado);
     }
 
-    const causalIncoming =
-      body.causalRetiro !== undefined || body.CausalDeRetiro !== undefined
-        ? emptyToNull(body.causalRetiro ?? body.CausalDeRetiro)
-        : undefined;
-    const fechaRetiroIncoming =
-      body.fechaRetiro !== undefined ||
-      body.FechaRetiro !== undefined ||
-      body.FechaRetiroExtraclase !== undefined
-        ? normalizeSqlDate(body.fechaRetiro ?? body.FechaRetiro ?? body.FechaRetiroExtraclase)
-        : undefined;
-    const fechaRetiroTransporteIncoming =
-      body.fechaRetiroTransporte !== undefined || body.FechaRetiroTransporte !== undefined
-        ? normalizeSqlDate(body.fechaRetiroTransporte ?? body.FechaRetiroTransporte)
-        : undefined;
+    const causalIncoming = bodyHas(body, 'causalRetiro', 'CausalDeRetiro')
+      ? emptyToNull(pickBody(body, 'causalRetiro', 'CausalDeRetiro'))
+      : undefined;
+    const fechaRetiroIncoming = bodyHas(body, 'fechaRetiro', 'FechaRetiro', 'FechaRetiroExtraclase')
+      ? normalizeSqlDate(pickBody(body, 'fechaRetiro', 'FechaRetiro', 'FechaRetiroExtraclase'))
+      : undefined;
+    const fechaRetiroTransporteIncoming = bodyHas(
+      body,
+      'fechaRetiroTransporte',
+      'FechaRetiroTransporte',
+    )
+      ? normalizeSqlDate(pickBody(body, 'fechaRetiroTransporte', 'FechaRetiroTransporte'))
+      : undefined;
 
     if (estadoFinal === 'RETIRADO') {
       const causalFinal =
@@ -1444,42 +1455,39 @@ export const actualizarInscripcionGestion = async (req, res) => {
       }
     }
 
-    if (body.sede !== undefined || body.Sede !== undefined) {
-      setIf('Sede', 'sede', emptyToNull(body.sede ?? body.Sede));
+    if (bodyHas(body, 'sede', 'Sede')) {
+      setIf('Sede', 'sede', emptyToNull(pickBody(body, 'sede', 'Sede')));
     }
-    if (body.transporte !== undefined || body.Transporte !== undefined) {
-      setIf('Transporte', 'transporte', normalizeTransporte(body.transporte ?? body.Transporte));
+    if (bodyHas(body, 'transporte', 'Transporte')) {
+      setIf('Transporte', 'transporte', normalizeTransporte(pickBody(body, 'transporte', 'Transporte')));
     }
-    if (body.mes !== undefined || body.Mes !== undefined) {
-      const mesRaw = String(body.mes ?? body.Mes ?? '').trim();
+    if (bodyHas(body, 'mes', 'Mes')) {
+      const mesRaw = String(pickBody(body, 'mes', 'Mes') ?? '').trim();
       setIf('Mes', 'mes', mesRaw ? mesRaw.padStart(2, '0') : null);
     }
-    if (body.anio !== undefined || body.año !== undefined) {
-      setIf('año', 'anio', Number(body.anio ?? body.año));
+    if (bodyHas(body, 'anio', 'año')) {
+      setIf('año', 'anio', Number(pickBody(body, 'anio', 'año')));
     }
-    if (body.observaciones !== undefined || body.OBSERVACION !== undefined) {
-      setIf('OBSERVACION', 'observaciones', emptyToNull(body.observaciones ?? body.OBSERVACION));
+    if (bodyHas(body, 'observaciones', 'OBSERVACION')) {
+      setIf('OBSERVACION', 'observaciones', emptyToNull(pickBody(body, 'observaciones', 'OBSERVACION')));
     }
-    if (body.observacionFacturacion !== undefined || body.Observacion_Facturacion !== undefined) {
+    if (bodyHas(body, 'observacionFacturacion', 'Observacion_Facturacion')) {
       setIf(
         'Observacion_Facturacion',
         'observacionFacturacion',
-        emptyToNull(body.observacionFacturacion ?? body.Observacion_Facturacion),
+        emptyToNull(pickBody(body, 'observacionFacturacion', 'Observacion_Facturacion')),
       );
     }
     if (causalIncoming !== undefined) {
       setIf('`CAUSAL DE RETIRO`', 'causalRetiro', estadoFinal === 'RETIRADO' ? causalIncoming : null);
-    } else if (estadoFinal !== 'RETIRADO' && (body.estado !== undefined || body.Estado !== undefined)) {
+    } else if (estadoFinal !== 'RETIRADO' && bodyHas(body, 'estado', 'Estado')) {
       setIf('`CAUSAL DE RETIRO`', 'causalRetiro', null);
     }
-    if (
-      body.fechaIngresoNuevoTransporte !== undefined ||
-      body.FechaIngresoNuevoTransporte !== undefined
-    ) {
+    if (bodyHas(body, 'fechaIngresoNuevoTransporte', 'FechaIngresoNuevoTransporte')) {
       setIf(
         '`FECHA INGRESO NUEVO TRANSPORTE`',
         'fechaIngreso',
-        normalizeSqlDate(body.fechaIngresoNuevoTransporte ?? body.FechaIngresoNuevoTransporte),
+        normalizeSqlDate(pickBody(body, 'fechaIngresoNuevoTransporte', 'FechaIngresoNuevoTransporte')),
       );
     }
     if (fechaRetiroIncoming !== undefined) {
@@ -1488,7 +1496,7 @@ export const actualizarInscripcionGestion = async (req, res) => {
         'fechaRetiro',
         estadoFinal === 'RETIRADO' ? fechaRetiroIncoming : null,
       );
-    } else if (estadoFinal !== 'RETIRADO' && (body.estado !== undefined || body.Estado !== undefined)) {
+    } else if (estadoFinal !== 'RETIRADO' && bodyHas(body, 'estado', 'Estado')) {
       setIf('`FECHA RETIRO EXTRACLASE`', 'fechaRetiro', null);
     }
     if (fechaRetiroTransporteIncoming !== undefined) {
