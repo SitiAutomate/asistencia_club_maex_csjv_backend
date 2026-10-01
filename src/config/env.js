@@ -54,6 +54,17 @@ export const env = {
     desde: normalizarFechaEnv(process.env.INFORME_ENVIO_DESDE),
     hasta: normalizarFechaEnv(process.env.INFORME_ENVIO_HASTA),
   },
+  /** Ventana para trocar/devolver cursos (fecha según America/Bogota). */
+  trocarCursos: {
+    habilitado: (() => {
+      const raw = process.env.TROCAR_CURSOS_HABILITADO;
+      const clean = raw == null ? '' : String(raw).trim().replace(/^\uFEFF/, '');
+      if (clean === '') return true;
+      return clean.toLowerCase() !== 'false';
+    })(),
+    desde: normalizarFechaEnv(process.env.TROCAR_CURSOS_DESDE),
+    hasta: normalizarFechaEnv(process.env.TROCAR_CURSOS_HASTA),
+  },
   email: {
     host: process.env.EMAIL_HOST || '',
     port: Number(process.env.EMAIL_PORT) || 587,

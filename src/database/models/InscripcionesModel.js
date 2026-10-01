@@ -69,6 +69,9 @@ Inscripciones.init(
     nombreCurso: {
       type: DataTypes.STRING,
     },
+    cursoRecomendado: {
+      type: DataTypes.STRING,
+    },
   },
   {
     sequelize,
@@ -113,6 +116,7 @@ export const INSCRIPCIONES_ATTRS_GESTION = [
   'FechaRetiro',
   'FechaRetiroTransporte',
   'nombreCurso',
+  'cursoRecomendado',
 ];
 
 export default Inscripciones;

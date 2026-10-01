@@ -54,6 +54,12 @@ Cursos.init(
         Codigo_Facturacion:{
             type: DataTypes.STRING,
         },
+        cursoPosterior:{
+            type: DataTypes.STRING,
+        },
+        cursoAnterior:{
+            type: DataTypes.STRING,
+        },
     },
     {
         sequelize,

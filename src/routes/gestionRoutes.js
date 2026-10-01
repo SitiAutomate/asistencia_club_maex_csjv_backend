@@ -20,6 +20,11 @@ import {
   listarCursosGestion,
   crearCursoGestion,
   actualizarCursoGestion,
+  trocarCursosGestion,
+  devolverCursosGestion,
+  listarRecomendacionesGestion,
+  actualizarRecomendacionGestion,
+  guardarRecomendacionesBulkGestion,
   metaFiltrosGestion,
   listarCausalesGestion,
   listarActividadesCatalogo,
@@ -98,6 +103,32 @@ router.patch(
   '/cursos/:id',
   requireGestionPermiso(GESTION_MODULOS.CURSOS, GESTION_ACCIONES.EDITAR),
   actualizarCursoGestion,
+);
+router.post(
+  '/cursos/trocar',
+  requireGestionPermiso(GESTION_MODULOS.CURSOS, GESTION_ACCIONES.EDITAR),
+  trocarCursosGestion,
+);
+router.post(
+  '/cursos/devolver',
+  requireGestionPermiso(GESTION_MODULOS.CURSOS, GESTION_ACCIONES.EDITAR),
+  devolverCursosGestion,
+);
+
+router.get(
+  '/recomendaciones',
+  requireGestionPermiso(GESTION_MODULOS.RECOMENDACIONES, GESTION_ACCIONES.LEER),
+  listarRecomendacionesGestion,
+);
+router.patch(
+  '/recomendaciones',
+  requireGestionPermiso(GESTION_MODULOS.RECOMENDACIONES, GESTION_ACCIONES.EDITAR),
+  actualizarRecomendacionGestion,
+);
+router.post(
+  '/recomendaciones/guardar',
+  requireGestionPermiso(GESTION_MODULOS.RECOMENDACIONES, GESTION_ACCIONES.EDITAR),
+  guardarRecomendacionesBulkGestion,
 );
 
 router.get(

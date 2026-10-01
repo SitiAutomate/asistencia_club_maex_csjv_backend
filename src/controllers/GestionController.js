@@ -14,8 +14,27 @@ import {
 } from '../services/gestionTipoCamposService.js';
 import { GESTION_MODULOS } from '../constants/gestionPermisos.js';
 import { ROLES } from '../constants/roles.js';
+import { parseDiasDesdeNombre } from '../utils/parseDiasDesdeNombre.js';
+import { logger } from '../config/logger.js';
+import { env } from '../config/env.js';
+import { evaluateInformeEnvioWindow } from '../utils/informeEnvioWindow.js';
 
 const ESTADOS_GESTION = ['CONFIRMADO', 'ACTIVO', 'INCAPACITADO', 'RETIRADO'];
+
+function assertTrocarCursosPermitido() {
+  const ventana = evaluateInformeEnvioWindow(env.trocarCursos);
+  if (ventana.ok) return null;
+  if (ventana.code === 'disabled') {
+    return 'El troque de cursos está deshabilitado (TROCAR_CURSOS_HABILITADO=false)';
+  }
+  if (ventana.code === 'before_window') {
+    return `El troque de cursos aún no está disponible (desde ${env.trocarCursos.desde || '—'})`;
+  }
+  if (ventana.code === 'after_window') {
+    return `El troque de cursos ya no está disponible (hasta ${env.trocarCursos.hasta || '—'})`;
+  }
+  return 'El troque de cursos no está permitido en esta fecha';
+}
 
 /** Curso excluido del pase mensual (misma regla operativa histórica). */
 const CURSO_EXCLUIDO_PASE_MES = '20262';
@@ -884,6 +903,8 @@ export const listarCursosGestion = async (req, res) => {
          c.Jueves AS jueves,
          c.Viernes AS viernes,
          c.\`SÁBADO\` AS sabado,
+         c.cursoPosterior AS cursoPosterior,
+         c.cursoAnterior AS cursoAnterior,
          l.Nombre_Linea AS nombreLinea,
          a.Nombre_Actividad AS nombreActividad,
          e.Nombre_Docente AS nombreDocente,
@@ -923,6 +944,12 @@ export const listarCursosGestion = async (req, res) => {
         })),
         meta: {
           periodoCupos: periodosCupos.map((p) => ({ anio: p.anio, mes: p.mes })),
+          trocar: {
+            permitido: evaluateInformeEnvioWindow(env.trocarCursos).ok,
+            desde: env.trocarCursos.desde,
+            hasta: env.trocarCursos.hasta,
+            habilitado: env.trocarCursos.habilitado,
+          },
         },
       },
       'Cursos obtenidos',
@@ -2405,6 +2432,10 @@ export const actualizarCursoGestion = async (req, res) => {
       repl.cuposMaximos =
         raw === '' || raw == null ? null : String(raw).replace(/\D/g, '').slice(0, 3) || null;
     }
+    if (body.cursoPosterior !== undefined) {
+      sets.push('cursoPosterior = :cursoPosterior');
+      repl.cursoPosterior = emptyToNull(body.cursoPosterior);
+    }
 
     const dayMap = [
       ['lunes', 'Lunes', 'lunes'],
@@ -2479,12 +2510,12 @@ export const crearCursoGestion = async (req, res) => {
          Tarifa_Curso, Codigo_Facturacion, Actividad, Docente, Linea,
          Cupos_minimos, Cupos_maximos,
          Fecha_Inicio, Fecha_Final,
-         Lunes, Martes, \`Miércoles\`, Jueves, Viernes, \`SÁBADO\`)
+         Lunes, Martes, \`Miércoles\`, Jueves, Viernes, \`SÁBADO\`, cursoPosterior)
        VALUES
         (:id, :nombre, :nombreCorto, :tipo, :estado, :sede, :tarifa, :codigo, :actividad, :docente, :linea,
          :cuposMinimos, :cuposMaximos,
          :fechaInicio, :fechaFinal,
-         :lunes, :martes, :miercoles, :jueves, :viernes, :sabado)`,
+         :lunes, :martes, :miercoles, :jueves, :viernes, :sabado, :cursoPosterior)`,
       {
         replacements: {
           id,
@@ -2514,6 +2545,7 @@ export const crearCursoGestion = async (req, res) => {
           jueves: dayValue(body.jueves),
           viernes: dayValue(body.viernes),
           sabado: dayValue(body.sabado),
+          cursoPosterior: emptyToNull(body.cursoPosterior) ?? null,
         },
         type: QueryTypes.INSERT,
       },
@@ -2530,5 +2562,659 @@ export const crearCursoGestion = async (req, res) => {
     return sendSuccess(res, 201, { id }, 'Curso creado');
   } catch (error) {
     return sendError(res, 500, 'Error al crear curso', error.message);
+  }
+};
+
+/**
+ * Opciones por NOMBRE (textos cursoPosterior de la misma actividad/sede).
+ * Cada opción intenta resolver un ID (Nombre actual o cursoAnterior) para guardar.
+ * Si aún no existe el curso con ese nombre, la opción igual se muestra.
+ */
+async function opcionesRecomendadasPorActividadYSede(
+  actividadId,
+  sede = null,
+  { prioridadNombre = null, excluirIdCurso = null } = {},
+) {
+  if (!actividadId) return [];
+
+  const clauses = ['c.Actividad = :actividad'];
+  const repl = { actividad: Number(actividadId) };
+  if (sede != null && String(sede).trim() !== '') {
+    clauses.push('c.Sede = :sede');
+    repl.sede = String(sede).trim();
+  }
+
+  const cursos = await sequelize.query(
+    `SELECT
+       c.ID_Curso AS id,
+       c.Nombre_del_curso AS nombre,
+       c.cursoAnterior AS cursoAnterior,
+       c.cursoPosterior AS cursoPosterior
+     FROM cursos_2025 c
+     WHERE ${clauses.join(' AND ')}
+     ORDER BY c.Nombre_del_curso ASC`,
+    { replacements: repl, type: QueryTypes.SELECT },
+  );
+
+  const excluir = String(excluirIdCurso || '').trim();
+  const prioNombre = String(prioridadNombre || '').trim();
+
+  /**
+   * Resuelve nombre recomendado → ID_Curso:
+   * 1) Nombre actual
+   * 2) cursoAnterior (ya trocado)
+   * 3) cursoPosterior (el curso que se llamará así al trocar)
+   */
+  const idPorNombre = new Map();
+  const setId = (nombre, id, prefer = false) => {
+    const key = String(nombre || '').trim().toLowerCase();
+    if (!key || !id) return;
+    if (prefer || !idPorNombre.has(key)) idPorNombre.set(key, id);
+  };
+
+  for (const c of cursos) {
+    const id = String(c.id || '').trim();
+    if (!id || (excluir && id === excluir)) continue;
+    setId(c.nombre, id, true);
+    setId(c.cursoAnterior, id, false);
+  }
+  // Los que declaran el posterior: útiles cuando el nombre aún no existe como curso.
+  for (const c of cursos) {
+    const id = String(c.id || '').trim();
+    if (!id) continue;
+    setId(c.cursoPosterior, id, false);
+  }
+
+  const seen = new Set();
+  const out = [];
+  for (const c of cursos) {
+    const texto = String(c.cursoPosterior || '').trim();
+    if (!texto || texto === '0') continue;
+    const key = texto.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      value: texto,
+      label: texto,
+      nombre: texto,
+      id: idPorNombre.get(key) || null,
+    });
+  }
+
+  if (prioNombre) {
+    const prioKey = prioNombre.toLowerCase();
+    const idx = out.findIndex((o) => o.nombre.toLowerCase() === prioKey);
+    if (idx > 0) {
+      const [item] = out.splice(idx, 1);
+      out.unshift(item);
+    } else if (idx < 0) {
+      out.unshift({
+        value: prioNombre,
+        label: prioNombre,
+        nombre: prioNombre,
+        id: idPorNombre.get(prioKey) || null,
+      });
+    }
+  }
+
+  logger.info(
+    `[recomendaciones] act=${actividadId} sede=${sede || '—'} excluir=${excluir || '—'} ` +
+      `prio="${prioridadNombre || ''}" opcionesNombre=${out.length} ` +
+      `conId=${out.filter((o) => o.id).length}`,
+  );
+
+  return out;
+}
+
+export const listarRecomendacionesGestion = async (req, res) => {
+  try {
+    const actividad = String(req.query.actividad || '').trim();
+    const idCurso = String(req.query.idCurso || '').trim();
+    const anioRaw = req.query.anio ?? req.query.año;
+    const debug = String(req.query.debug || '') === '1';
+    const { anio: anioDefault } = anioMesBogota();
+    const anio = anioRaw != null && String(anioRaw).trim() !== '' ? Number(anioRaw) : anioDefault;
+
+    if (!actividad && !idCurso) {
+      return sendError(res, 400, 'Indique actividad o curso para filtrar');
+    }
+
+    let actividadId = actividad ? Number(actividad) : null;
+    if (!actividadId && idCurso) {
+      const [cur] = await sequelize.query(
+        `SELECT Actividad FROM cursos_2025 WHERE ID_Curso = :id LIMIT 1`,
+        { replacements: { id: idCurso }, type: QueryTypes.SELECT },
+      );
+      actividadId = cur?.Actividad != null ? Number(cur.Actividad) : null;
+    }
+
+    const clauses = [
+      `i.Tipo = 1`,
+      `TRIM(i.Estado) IN ('CONFIRMADO', 'ACTIVO', 'INCAPACITADO')`,
+    ];
+    const repl = { anio };
+
+    if (Number.isFinite(anio) && anio > 0) {
+      clauses.push('i.año = :anio');
+    }
+    if (idCurso) {
+      clauses.push('TRIM(i.IDCurso) = :idCurso');
+      repl.idCurso = idCurso;
+    }
+    if (actividadId) {
+      clauses.push('c.Actividad = :actividad');
+      repl.actividad = actividadId;
+    }
+
+    const q = String(req.query.q || req.query.participante || '').trim();
+    if (q) {
+      clauses.push(
+        `(i.validador_participante LIKE :q OR p.Nombre_Completo LIKE :q)`,
+      );
+      repl.q = `%${q}%`;
+    }
+
+    const rows = await sequelize.query(
+      `SELECT
+         i.validador_participante AS validador,
+         MAX(p.Nombre_Completo) AS nombreParticipante,
+         TRIM(i.IDCurso) AS idCurso,
+         MAX(COALESCE(c.Nombre_del_curso, i.nombreCurso, TRIM(i.IDCurso))) AS nombreCurso,
+         MAX(NULLIF(TRIM(i.cursoRecomendado), '')) AS cursoRecomendado,
+         MAX(NULLIF(TRIM(c.cursoPosterior), '')) AS cursoPosteriorDefault,
+         MAX(c.Actividad) AS actividadId,
+         MAX(c.Sede) AS sede,
+         MAX(a.Nombre_Actividad) AS nombreActividad,
+         MAX(cr.Nombre_del_curso) AS nombreCursoRecomendadoActual,
+         MAX(NULLIF(TRIM(cr.cursoPosterior), '')) AS nombreCursoRecomendadoPosterior
+       FROM inscripciones_1 i
+       LEFT JOIN participantes p ON p.IDParticipante = i.validador_participante
+       LEFT JOIN cursos_2025 c ON c.ID_Curso = i.IDCurso
+       LEFT JOIN cursos_2025 cr ON cr.ID_Curso = i.cursoRecomendado
+       LEFT JOIN actividades a ON a.IDActividad = c.Actividad
+       WHERE ${clauses.join(' AND ')}
+       GROUP BY i.validador_participante, TRIM(i.IDCurso)
+       ORDER BY nombreParticipante ASC, nombreCurso ASC
+       LIMIT 2000`,
+      { replacements: repl, type: QueryTypes.SELECT },
+    );
+
+    const opcionesCache = new Map();
+    const warnSinId = new Set();
+    async function opcionesPara(actId, sede, prioridadNombre, excluirIdCurso) {
+      const key = `${actId || ''}|${sede || ''}|${excluirIdCurso || ''}`;
+      if (!opcionesCache.has(key)) {
+        opcionesCache.set(
+          key,
+          await opcionesRecomendadasPorActividadYSede(actId, sede, {
+            prioridadNombre: null,
+            excluirIdCurso,
+          }),
+        );
+      }
+      const base = [...(opcionesCache.get(key) || [])];
+      const prio = String(prioridadNombre || '').trim();
+      if (!prio) return base;
+      const prioKey = prio.toLowerCase();
+      const idx = base.findIndex((o) => String(o.nombre).toLowerCase() === prioKey);
+      if (idx > 0) {
+        const [item] = base.splice(idx, 1);
+        base.unshift(item);
+      } else if (idx < 0) {
+        // Resolver id ad-hoc
+        const [hit] = await sequelize.query(
+          `SELECT ID_Curso AS id FROM cursos_2025
+           WHERE Actividad = :actividad
+             ${sede ? 'AND Sede = :sede' : ''}
+             AND (
+               LOWER(TRIM(Nombre_del_curso)) = :prio
+               OR LOWER(TRIM(IFNULL(cursoAnterior, ''))) = :prio
+             )
+             AND ID_Curso <> :excluir
+           LIMIT 1`,
+          {
+            replacements: {
+              actividad: Number(actId),
+              sede: sede || null,
+              prio: prioKey,
+              excluir: excluirIdCurso || '',
+            },
+            type: QueryTypes.SELECT,
+          },
+        );
+        base.unshift({
+          value: prio,
+          label: prio,
+          nombre: prio,
+          id: hit?.id ? String(hit.id) : null,
+        });
+      }
+      return base;
+    }
+
+    const filas = [];
+    const debugRows = [];
+    for (const r of rows) {
+      const defaultPosterior = r.cursoPosteriorDefault || null;
+      const opcionesRecomendadas = await opcionesPara(
+        r.actividadId,
+        r.sede,
+        defaultPosterior,
+        r.idCurso,
+      );
+      const cursoRecomendadoId = r.cursoRecomendado
+        ? String(r.cursoRecomendado).trim()
+        : null;
+      const defaultOpt = defaultPosterior
+        ? opcionesRecomendadas.find(
+            (o) =>
+              String(o.nombre).trim().toLowerCase() ===
+              String(defaultPosterior).trim().toLowerCase(),
+          )
+        : null;
+
+      if (defaultPosterior && !defaultOpt?.id) {
+        const warnKey = String(r.idCurso);
+        if (!warnSinId.has(warnKey)) {
+          warnSinId.add(warnKey);
+          logger.warn(
+            `[recomendaciones] curso ${r.idCurso}: posterior="${defaultPosterior}" ` +
+              `aún no tiene curso destino (se muestra el nombre; al guardar se necesita el ID)`,
+          );
+        }
+      }
+
+      const savedOpt = cursoRecomendadoId
+        ? opcionesRecomendadas.find((o) => String(o.id) === cursoRecomendadoId)
+        : null;
+      // Nombre a mostrar: el texto de la opción (posterior), no el nombre actual del curso.
+      const nombreCursoRecomendado =
+        savedOpt?.nombre ||
+        r.nombreCursoRecomendadoPosterior ||
+        r.nombreCursoRecomendadoActual ||
+        null;
+
+      if (debug) {
+        debugRows.push({
+          idCurso: r.idCurso,
+          sede: r.sede,
+          cursoPosteriorDefault: defaultPosterior,
+          cursoRecomendado: cursoRecomendadoId,
+          nombreCursoRecomendado,
+          opciones: opcionesRecomendadas.map((o) => ({
+            nombre: o.nombre,
+            id: o.id,
+          })),
+        });
+      }
+
+      filas.push({
+        validador: r.validador,
+        nombreParticipante: r.nombreParticipante || r.validador,
+        idCurso: r.idCurso,
+        nombreCurso: r.nombreCurso,
+        sede: r.sede || null,
+        cursoRecomendado: cursoRecomendadoId,
+        nombreCursoRecomendado,
+        cursoPosteriorDefault: defaultPosterior,
+        /** Nombre a mostrar/preseleccionar (relación por nombre). */
+        cursoRecomendadoDefaultNombre: defaultPosterior || null,
+        /** ID resuelto si ya existe el curso con ese nombre. */
+        cursoRecomendadoDefaultId: defaultOpt?.id || null,
+        actividadId: r.actividadId,
+        nombreActividad: r.nombreActividad,
+        opcionesRecomendadas,
+      });
+    }
+
+    logger.info(
+      `[recomendaciones] listado filas=${filas.length} act=${actividadId || '—'} ` +
+        `idCurso=${idCurso || '—'} anio=${anio}`,
+    );
+
+    return sendSuccess(
+      res,
+      200,
+      {
+        filas,
+        meta: {
+          anio,
+          actividadId,
+          idCurso: idCurso || null,
+          ...(debug ? { debug: debugRows.slice(0, 20) } : {}),
+        },
+      },
+      'Recomendaciones obtenidas',
+    );
+  } catch (error) {
+    return sendError(res, 500, 'Error al listar recomendaciones', error.message);
+  }
+};
+
+export const actualizarRecomendacionGestion = async (req, res) => {
+  try {
+    const body = req.body || {};
+    const validador = String(body.validador || '').trim();
+    const idCurso = String(body.idCurso || '').trim();
+    const cursoRecomendado = emptyToNull(body.cursoRecomendado);
+    const anioRaw = body.anio ?? body.año;
+    const { anio: anioDefault } = anioMesBogota();
+    const anio = anioRaw != null && String(anioRaw).trim() !== '' ? Number(anioRaw) : anioDefault;
+
+    if (!validador || !idCurso) {
+      return sendError(res, 400, 'validador e idCurso son obligatorios');
+    }
+
+    const repl = { validador, idCurso, cursoRecomendado };
+    const anioClause =
+      Number.isFinite(anio) && anio > 0 ? ' AND i.año = :anio' : '';
+    if (anioClause) repl.anio = anio;
+
+    const [, meta] = await sequelize.query(
+      `UPDATE inscripciones_1 i
+       SET i.cursoRecomendado = :cursoRecomendado
+       WHERE i.Tipo = 1
+         AND TRIM(i.validador_participante) = :validador
+         AND TRIM(i.IDCurso) = :idCurso
+         ${anioClause}`,
+      { replacements: repl, type: QueryTypes.UPDATE },
+    );
+
+    await registrarAuditoria({
+      req,
+      accion: 'EDITAR',
+      modulo: GESTION_MODULOS.RECOMENDACIONES,
+      entidad: 'inscripcion_recomendacion',
+      entidadId: `${validador}:${idCurso}`,
+      resumen: `Curso recomendado ${cursoRecomendado || '—'} · ${validador} · ${idCurso}`,
+      despues: { validador, idCurso, cursoRecomendado, anio },
+    });
+
+    return sendSuccess(
+      res,
+      200,
+      { affected: meta?.affectedRows ?? meta ?? 0 },
+      'Recomendación actualizada',
+    );
+  } catch (error) {
+    return sendError(res, 500, 'Error al actualizar recomendación', error.message);
+  }
+};
+
+export const guardarRecomendacionesBulkGestion = async (req, res) => {
+  try {
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length) return sendError(res, 400, 'Indique al menos una recomendación');
+
+    const anioRaw = req.body?.anio ?? req.body?.año;
+    const { anio: anioDefault } = anioMesBogota();
+    const anio = anioRaw != null && String(anioRaw).trim() !== '' ? Number(anioRaw) : anioDefault;
+    const anioClause =
+      Number.isFinite(anio) && anio > 0 ? ' AND i.año = :anio' : '';
+
+    let updated = 0;
+    const skipped = [];
+
+    for (const item of items) {
+      const validador = String(item?.validador || '').trim();
+      const idCurso = String(item?.idCurso || '').trim();
+      const rawRec = emptyToNull(item?.cursoRecomendado);
+      if (!validador || !idCurso) continue;
+
+      let cursoRecomendadoId = null;
+      if (rawRec) {
+        // 1) Ya es ID
+        const [byId] = await sequelize.query(
+          `SELECT ID_Curso AS id FROM cursos_2025 WHERE ID_Curso = :q LIMIT 1`,
+          { replacements: { q: rawRec }, type: QueryTypes.SELECT },
+        );
+        if (byId?.id) {
+          cursoRecomendadoId = String(byId.id);
+        } else {
+          // 2) Nombre actual o cursoAnterior
+          const [byName] = await sequelize.query(
+            `SELECT ID_Curso AS id FROM cursos_2025
+             WHERE LOWER(TRIM(Nombre_del_curso)) = LOWER(:q)
+                OR LOWER(TRIM(IFNULL(cursoAnterior, ''))) = LOWER(:q)
+             LIMIT 1`,
+            { replacements: { q: rawRec }, type: QueryTypes.SELECT },
+          );
+          if (byName?.id) {
+            cursoRecomendadoId = String(byName.id);
+          } else {
+            // 3) Curso que declara ese texto como cursoPosterior (nombre futuro al trocar)
+            const [byPost] = await sequelize.query(
+              `SELECT ID_Curso AS id FROM cursos_2025
+               WHERE LOWER(TRIM(IFNULL(cursoPosterior, ''))) = LOWER(:q)
+               LIMIT 1`,
+              { replacements: { q: rawRec }, type: QueryTypes.SELECT },
+            );
+            if (byPost?.id) {
+              cursoRecomendadoId = String(byPost.id);
+            } else {
+              skipped.push({
+                validador,
+                idCurso,
+                cursoRecomendado: rawRec,
+                reason: 'No hay curso con ese nombre / posterior para guardar el ID',
+              });
+              continue;
+            }
+          }
+        }
+      }
+
+      const repl = { validador, idCurso, cursoRecomendado: cursoRecomendadoId };
+      if (anioClause) repl.anio = anio;
+
+      const [, meta] = await sequelize.query(
+        `UPDATE inscripciones_1 i
+         SET i.cursoRecomendado = :cursoRecomendado
+         WHERE i.Tipo = 1
+           AND TRIM(i.validador_participante) = :validador
+           AND TRIM(i.IDCurso) = :idCurso
+           ${anioClause}`,
+        { replacements: repl, type: QueryTypes.UPDATE },
+      );
+      updated += Number(meta?.affectedRows ?? 0) || 0;
+    }
+
+    await registrarAuditoria({
+      req,
+      accion: 'EDITAR',
+      modulo: GESTION_MODULOS.RECOMENDACIONES,
+      entidad: 'inscripcion_recomendacion_bulk',
+      entidadId: String(items.length),
+      resumen: `Guardar ${items.length} recomendaciones · ok=${updated} omitidos=${skipped.length}`,
+      despues: { count: items.length, updated, skipped, anio },
+    });
+
+    return sendSuccess(
+      res,
+      200,
+      { updated, count: items.length, skipped },
+      skipped.length
+        ? `Guardadas con avisos (${skipped.length} sin ID de curso)`
+        : 'Recomendaciones guardadas',
+    );
+  } catch (error) {
+    return sendError(res, 500, 'Error al guardar recomendaciones', error.message);
+  }
+};
+
+export const trocarCursosGestion = async (req, res) => {
+  try {
+    const bloqueo = assertTrocarCursosPermitido();
+    if (bloqueo) return sendError(res, 403, bloqueo);
+
+    const ids = Array.isArray(req.body?.ids)
+      ? req.body.ids.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (!ids.length) return sendError(res, 400, 'Indique al menos un curso');
+
+    const ok = [];
+    const skipped = [];
+
+    for (const id of ids) {
+      const [curso] = await sequelize.query(
+        `SELECT
+           c.ID_Curso AS id,
+           c.Nombre_del_curso AS nombre,
+           c.cursoPosterior AS cursoPosterior
+         FROM cursos_2025 c
+         WHERE c.ID_Curso = :id
+         LIMIT 1`,
+        { replacements: { id }, type: QueryTypes.SELECT },
+      );
+
+      if (!curso) {
+        skipped.push({ id, reason: 'Curso no encontrado' });
+        continue;
+      }
+      const nombrePosterior = String(curso.cursoPosterior || '').trim();
+      if (!nombrePosterior) {
+        skipped.push({ id, reason: 'Sin curso posterior configurado' });
+        continue;
+      }
+
+      const dias = parseDiasDesdeNombre(nombrePosterior);
+      const nombreAnterior = String(curso.nombre || '').trim();
+
+      await sequelize.query(
+        `UPDATE cursos_2025 SET
+           cursoAnterior = :cursoAnterior,
+           Nombre_del_curso = :nombreNuevo,
+           Lunes = :lunes,
+           Martes = :martes,
+           \`Miércoles\` = :miercoles,
+           Jueves = :jueves,
+           Viernes = :viernes,
+           \`SÁBADO\` = :sabado
+         WHERE ID_Curso = :id`,
+        {
+          replacements: {
+            id,
+            cursoAnterior: nombreAnterior,
+            nombreNuevo: nombrePosterior,
+            lunes: dias.lunes,
+            martes: dias.martes,
+            miercoles: dias.miercoles,
+            jueves: dias.jueves,
+            viernes: dias.viernes,
+            sabado: dias.sabado,
+          },
+          type: QueryTypes.UPDATE,
+        },
+      );
+
+      await registrarAuditoria({
+        req,
+        accion: 'TROCAR',
+        modulo: GESTION_MODULOS.CURSOS,
+        entidad: 'curso',
+        entidadId: id,
+        resumen: `Trocar ${id}: ${nombreAnterior} → ${nombrePosterior}`,
+        antes: { nombre: nombreAnterior, cursoPosterior: nombrePosterior },
+        despues: { nombre: nombrePosterior, cursoAnterior: nombreAnterior, dias },
+      });
+
+      ok.push({
+        id,
+        nombreAnterior,
+        nombreNuevo: nombrePosterior,
+      });
+    }
+
+    return sendSuccess(res, 200, { ok, skipped }, 'Trocar completado');
+  } catch (error) {
+    return sendError(res, 500, 'Error al trocar cursos', error.message);
+  }
+};
+
+export const devolverCursosGestion = async (req, res) => {
+  try {
+    const bloqueo = assertTrocarCursosPermitido();
+    if (bloqueo) return sendError(res, 403, bloqueo);
+
+    const ids = Array.isArray(req.body?.ids)
+      ? req.body.ids.map((id) => String(id || '').trim()).filter(Boolean)
+      : [];
+    if (!ids.length) return sendError(res, 400, 'Indique al menos un curso');
+
+    const ok = [];
+    const skipped = [];
+
+    for (const id of ids) {
+      const [curso] = await sequelize.query(
+        `SELECT
+           c.ID_Curso AS id,
+           c.Nombre_del_curso AS nombre,
+           c.cursoAnterior AS cursoAnterior
+         FROM cursos_2025 c
+         WHERE c.ID_Curso = :id
+         LIMIT 1`,
+        { replacements: { id }, type: QueryTypes.SELECT },
+      );
+
+      if (!curso) {
+        skipped.push({ id, reason: 'Curso no encontrado' });
+        continue;
+      }
+      const nombreAnterior = String(curso.cursoAnterior || '').trim();
+      if (!nombreAnterior) {
+        skipped.push({ id, reason: 'Sin curso anterior para devolver' });
+        continue;
+      }
+
+      const dias = parseDiasDesdeNombre(nombreAnterior);
+      const nombreActual = String(curso.nombre || '').trim();
+
+      await sequelize.query(
+        `UPDATE cursos_2025 SET
+           Nombre_del_curso = :nombreNuevo,
+           cursoAnterior = NULL,
+           Lunes = :lunes,
+           Martes = :martes,
+           \`Miércoles\` = :miercoles,
+           Jueves = :jueves,
+           Viernes = :viernes,
+           \`SÁBADO\` = :sabado
+         WHERE ID_Curso = :id`,
+        {
+          replacements: {
+            id,
+            nombreNuevo: nombreAnterior,
+            lunes: dias.lunes,
+            martes: dias.martes,
+            miercoles: dias.miercoles,
+            jueves: dias.jueves,
+            viernes: dias.viernes,
+            sabado: dias.sabado,
+          },
+          type: QueryTypes.UPDATE,
+        },
+      );
+
+      await registrarAuditoria({
+        req,
+        accion: 'DEVOLVER',
+        modulo: GESTION_MODULOS.CURSOS,
+        entidad: 'curso',
+        entidadId: id,
+        resumen: `Devolver ${id}: ${nombreActual} → ${nombreAnterior}`,
+        antes: { nombre: nombreActual, cursoAnterior: nombreAnterior },
+        despues: { nombre: nombreAnterior, cursoAnterior: null, dias },
+      });
+
+      ok.push({
+        id,
+        nombreAnterior: nombreActual,
+        nombreNuevo: nombreAnterior,
+      });
+    }
+
+    return sendSuccess(res, 200, { ok, skipped }, 'Devolver completado');
+  } catch (error) {
+    return sendError(res, 500, 'Error al devolver cursos', error.message);
   }
 };
