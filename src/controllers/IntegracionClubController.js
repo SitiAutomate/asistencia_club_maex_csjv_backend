@@ -34,6 +34,8 @@ const SELECT_EXTRACLASES = `
   TRIM(i.Estado) AS estado,
   TRIM(c.Nombre_Corto_Curso) AS curso,
   TRIM(c.Nombre_del_curso) AS nombreCurso,
+  c.Linea AS linea,
+  TRIM(l.Nombre_Linea) AS nombreLinea,
   NULLIF(TRIM(c.Lunes), '') AS lunes,
   NULLIF(TRIM(c.Martes), '') AS martes,
   NULLIF(TRIM(c.\`Miércoles\`), '') AS miercoles,
@@ -120,6 +122,7 @@ function errorRespuesta(res, mensaje, error) {
 const JOINS = `
   FROM inscripciones_1 i
   LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(i.IDCurso)
+  LEFT JOIN linea l ON l.IDLinea = c.Linea
   LEFT JOIN participantes p ON TRIM(p.IDParticipante) = TRIM(i.validador_participante)
   LEFT JOIN responsables r ON TRIM(r.IDResponsable) = TRIM(i.validador_responsable)
   LEFT JOIN padres pa ON TRIM(pa.\`Doc. Alumno\`) = TRIM(i.validador_participante)
