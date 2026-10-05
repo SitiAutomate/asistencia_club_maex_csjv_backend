@@ -274,6 +274,14 @@ const emptyToNull = (value) => {
   return s === '' ? null : s;
 };
 
+/** Nombres de curso siempre en mayúsculas. */
+const toUpperCursoNombre = (value) => {
+  if (value === undefined) return undefined;
+  if (value == null) return null;
+  const s = String(value).trim();
+  return s === '' ? null : s.toLocaleUpperCase('es-CO');
+};
+
 /** Primera clave presente en body (incluye null explícito; no usa ??). */
 function pickBody(body, ...keys) {
   for (const key of keys) {
@@ -2397,7 +2405,9 @@ export const actualizarCursoGestion = async (req, res) => {
     for (const [bodyKey, col, replKey] of map) {
       if (body[bodyKey] !== undefined) {
         sets.push(`${col} = :${replKey}`);
-        repl[replKey] = emptyToNull(body[bodyKey]);
+        const raw = emptyToNull(body[bodyKey]);
+        repl[replKey] =
+          bodyKey === 'nombre' || bodyKey === 'nombreCorto' ? toUpperCursoNombre(raw) : raw;
       }
     }
     if (body.tipo !== undefined) {
@@ -2434,7 +2444,7 @@ export const actualizarCursoGestion = async (req, res) => {
     }
     if (body.cursoPosterior !== undefined) {
       sets.push('cursoPosterior = :cursoPosterior');
-      repl.cursoPosterior = emptyToNull(body.cursoPosterior);
+      repl.cursoPosterior = toUpperCursoNombre(body.cursoPosterior);
     }
 
     const dayMap = [
@@ -2501,7 +2511,7 @@ export const crearCursoGestion = async (req, res) => {
   try {
     const body = req.body || {};
     const id = String(body.id || body.ID_Curso || '').trim();
-    const nombre = emptyToNull(body.nombre);
+    const nombre = toUpperCursoNombre(body.nombre);
     if (!id || !nombre) return sendError(res, 400, 'ID y nombre del curso son obligatorios');
 
     await sequelize.query(
@@ -2520,7 +2530,7 @@ export const crearCursoGestion = async (req, res) => {
         replacements: {
           id,
           nombre,
-          nombreCorto: emptyToNull(body.nombreCorto) ?? null,
+          nombreCorto: toUpperCursoNombre(body.nombreCorto) ?? null,
           tipo: Number(body.tipo || 1),
           estado: emptyToNull(body.estado) || 'ACTIVO',
           sede: emptyToNull(body.sede) ?? null,
@@ -2545,7 +2555,7 @@ export const crearCursoGestion = async (req, res) => {
           jueves: dayValue(body.jueves),
           viernes: dayValue(body.viernes),
           sabado: dayValue(body.sabado),
-          cursoPosterior: emptyToNull(body.cursoPosterior) ?? null,
+          cursoPosterior: toUpperCursoNombre(body.cursoPosterior) ?? null,
         },
         type: QueryTypes.INSERT,
       },
