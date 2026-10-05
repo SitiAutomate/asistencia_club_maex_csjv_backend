@@ -57,6 +57,8 @@ const mapInscripcionPeriodoRow = (row, { fullDetail = false } = {}) => {
     }
   }
 
+  const nombreLinea = row.Nombre_Linea || row.nombreLinea || '';
+
   return {
     Tipo: row.Tipo,
     validador_participante: row.validador_participante,
@@ -71,11 +73,50 @@ const mapInscripcionPeriodoRow = (row, { fullDetail = false } = {}) => {
       ? {
           ID_Curso: row.ID_Curso,
           Nombre_del_curso: row.Nombre_del_curso,
+          Linea: row.Linea ?? null,
+          Nombre_Linea: nombreLinea,
+          nombreLinea,
         }
       : null,
     participante,
   };
 };
+
+async function enriquecerLineaEnInscritos(inscritos) {
+  const plained = inscritos.map((i) => (i?.get ? i.get({ plain: true }) : i));
+  const lineIds = [
+    ...new Set(
+      plained
+        .map((i) => Number(i?.curso?.Linea))
+        .filter((n) => Number.isFinite(n) && n > 0),
+    ),
+  ];
+
+  let lineMap = new Map();
+  if (lineIds.length) {
+    const rows = await sequelize.query(
+      `SELECT IDLinea, Nombre_Linea FROM linea WHERE IDLinea IN (:lineIds)`,
+      { replacements: { lineIds }, type: QueryTypes.SELECT },
+    );
+    lineMap = new Map(
+      rows.map((r) => [Number(r.IDLinea), String(r.Nombre_Linea || '').trim()]),
+    );
+  }
+
+  return plained.map((ins) => {
+    if (!ins.curso) return ins;
+    const lineaId = Number(ins.curso.Linea);
+    const nombreLinea = Number.isFinite(lineaId) ? lineMap.get(lineaId) || '' : '';
+    return {
+      ...ins,
+      curso: {
+        ...ins.curso,
+        Nombre_Linea: nombreLinea,
+        nombreLinea,
+      },
+    };
+  });
+}
 
 const estadosQueryIncluyenIncapacitado = (estadoQuery) =>
   String(estadoQuery || '')
@@ -143,10 +184,12 @@ const obtenerInscritosPeriodo = async (req, res) => {
     `SELECT
        li.validador_participante, li.IDCurso, li.Tipo, li.año, li.Mes, li.Estado,
        li.validador_responsable, li.Transporte, li.Sede,
-       c.ID_Curso, c.Nombre_del_curso,
+       c.ID_Curso, c.Nombre_del_curso, c.Linea,
+       l.Nombre_Linea,
        ${participanteSelect}
      FROM ${inscripcionesValidasPeriodoSubquery()} li
      LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(li.IDCurso)
+     LEFT JOIN linea l ON l.IDLinea = c.Linea
      LEFT JOIN participantes p ON TRIM(p.IDParticipante) = TRIM(li.validador_participante)
      ${padresJoin}
      WHERE ${clauses.join(' AND ')}
@@ -248,7 +291,7 @@ export const obtenerInscritosActivos = async (req, res) => {
       {
         model: Cursos,
         as: 'curso',
-        attributes: ['ID_Curso', 'Nombre_del_curso'],
+        attributes: ['ID_Curso', 'Nombre_del_curso', 'Linea'],
       },
       {
         model: Participantes,
@@ -284,11 +327,13 @@ export const obtenerInscritosActivos = async (req, res) => {
       },
     ];
 
-    const inscritos = await Inscripciones.findAll({
+    const inscritosRaw = await Inscripciones.findAll({
       attributes: INSCRIPCIONES_ATTRS_BASE,
       include,
       where: whereInscritos,
     });
+
+    const inscritos = await enriquecerLineaEnInscritos(inscritosRaw);
 
     if (!withRutaExtra) {
       return sendSuccess(res, 200, { inscritos }, 'Inscritos obtenidos correctamente');
