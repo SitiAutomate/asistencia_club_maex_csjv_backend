@@ -43,12 +43,19 @@ export async function getEntrenadorAccesoByCorreo(correo) {
   }
 }
 
+/** Roles que toman acceso_asistencia desde la fila de entrenadores (por correo). */
+const ROLES_CON_ACCESO_ENTRENADOR = new Set([ROLES.ENTRENADOR, ROLES.PROVEEDOR]);
+
+export function rolUsaAccesoEntrenador(rol) {
+  return ROLES_CON_ACCESO_ENTRENADOR.has(String(rol || '').trim());
+}
+
 export async function resolveAccesoAsistenciaForUser(user) {
   const rol = String(user?.rol || '').trim();
   if (isAdminLikeRole(rol) || rol === ROLES.DESARROLLADOR) {
     return ACCESO_ASISTENCIA.ASISTENCIA_HISTORIAL;
   }
-  if (rol === ROLES.ENTRENADOR) {
+  if (rolUsaAccesoEntrenador(rol)) {
     return getEntrenadorAccesoByCorreo(user?.email);
   }
   return ACCESO_ASISTENCIA.ASISTENCIA_HISTORIAL;

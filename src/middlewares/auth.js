@@ -8,6 +8,7 @@ import { getDbPoolStats } from '../utils/dbPoolMonitor.js';
 import {
   ACCESO_ASISTENCIA,
   resolveAccesoAsistenciaForUser,
+  rolUsaAccesoEntrenador,
 } from '../utils/entrenadorAcceso.js';
 
 const AUTH_USER_CACHE_TTL_MS = 45_000;
@@ -165,12 +166,12 @@ export const requireRoles =
   };
 
 /**
- * Bloquea entrenadores con acceso «solo historial» (rúbricas, reportes, etc.).
+ * Bloquea entrenadores/proveedores con acceso «solo historial» (rúbricas, reportes, etc.).
  * GET /api/asistencia sigue permitido; el registro se valida aparte.
  */
 export const denyHistorialOnlyEntrenador = async (req, res, next) => {
   try {
-    if (String(req.user?.rol || '').trim() !== ROLES.ENTRENADOR) {
+    if (!rolUsaAccesoEntrenador(req.user?.rol)) {
       return next();
     }
     const acceso = await resolveAccesoAsistenciaForUser(req.user);
