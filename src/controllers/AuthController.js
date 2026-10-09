@@ -20,6 +20,7 @@ import {
 } from '../utils/authEmailTemplates.js';
 import { env } from '../config/env.js';
 import { findMaestroAcademicoByCorreo } from '../utils/lvlupMaestro.js';
+import { resolveAccesoAsistenciaForUser } from '../utils/entrenadorAcceso.js';
 
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const generateDbToken = () => crypto.randomBytes(32).toString('hex');
@@ -390,5 +391,21 @@ export const resetPassword = async (req, res) => {
   }
 };
 
-export const me = (req, res) =>
-  sendSuccess(res, 200, { user: req.user }, 'OK');
+export const me = async (req, res) => {
+  try {
+    const accesoAsistencia = await resolveAccesoAsistenciaForUser(req.user);
+    return sendSuccess(
+      res,
+      200,
+      {
+        user: {
+          ...req.user,
+          accesoAsistencia,
+        },
+      },
+      'OK',
+    );
+  } catch (e) {
+    return sendError(res, 500, 'Error al obtener sesión', e.message);
+  }
+};

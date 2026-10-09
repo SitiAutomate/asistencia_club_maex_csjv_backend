@@ -5,6 +5,10 @@ import { env } from '../config/env.js';
 import { ROLES } from '../constants/roles.js';
 import { agentDebugLog } from '../utils/agentDebugLog.js';
 import { getDbPoolStats } from '../utils/dbPoolMonitor.js';
+import {
+  ACCESO_ASISTENCIA,
+  resolveAccesoAsistenciaForUser,
+} from '../utils/entrenadorAcceso.js';
 
 const AUTH_USER_CACHE_TTL_MS = 45_000;
 const authUserCache = new Map();
@@ -159,3 +163,26 @@ export const requireRoles =
     }
     next();
   };
+
+/**
+ * Bloquea entrenadores con acceso «solo historial» (rúbricas, reportes, etc.).
+ * GET /api/asistencia sigue permitido; el registro se valida aparte.
+ */
+export const denyHistorialOnlyEntrenador = async (req, res, next) => {
+  try {
+    if (String(req.user?.rol || '').trim() !== ROLES.ENTRENADOR) {
+      return next();
+    }
+    const acceso = await resolveAccesoAsistenciaForUser(req.user);
+    if (acceso === ACCESO_ASISTENCIA.HISTORIAL) {
+      return sendError(
+        res,
+        403,
+        'Su perfil solo tiene acceso al historial de asistencia',
+      );
+    }
+    return next();
+  } catch (e) {
+    return sendError(res, 500, 'Error al validar acceso', e.message);
+  }
+};

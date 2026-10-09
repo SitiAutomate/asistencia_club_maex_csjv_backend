@@ -14,6 +14,18 @@ Entrenadores.init(
     Correo: {
       type: DataTypes.STRING,
     },
+    Cedula: {
+      type: DataTypes.INTEGER,
+      field: 'Cédula',
+      allowNull: false,
+    },
+    /** historial | asistencia_historial */
+    acceso_asistencia: {
+      type: DataTypes.STRING,
+      field: 'acceso_asistencia',
+      allowNull: false,
+      defaultValue: 'asistencia_historial',
+    },
   },
   {
     sequelize,

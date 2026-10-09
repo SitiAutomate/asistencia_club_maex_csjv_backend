@@ -8,6 +8,10 @@ import { sincronizarRutaSeguraSegunAsistenciaDelDia } from '../utils/asistenciaR
 import { fechaHoyColombiaYmd } from '../utils/fechaColombia.js';
 import { anioMesBogota } from '../utils/inscripcionesPeriodo.js';
 import { isAdminLikeRole } from '../constants/roles.js';
+import {
+  puedeRegistrarAsistencia,
+  resolveAccesoAsistenciaForUser,
+} from '../utils/entrenadorAcceso.js';
 
 async function resolveCursosAsignados(correo) {
   const asignaciones = await Asignaciones.findAll({
@@ -125,6 +129,15 @@ export const obtenerAsistencia = async (req, res) => {
 
 export const registrarAsistencia = async (req, res) => {
   try {
+    const acceso = await resolveAccesoAsistenciaForUser(req.user);
+    if (!puedeRegistrarAsistencia(acceso)) {
+      return sendError(
+        res,
+        403,
+        'Su perfil solo tiene acceso al historial de asistencia; no puede registrar.',
+      );
+    }
+
     const { documento, nombre, idcurso, curso, reporte, comentarios, ruta, sede, tieneRutaExtra } = req.body;
     const responsable = req.user.email;
     const responsableLabel =

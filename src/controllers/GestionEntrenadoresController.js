@@ -3,6 +3,10 @@ import { sequelize } from '../database/sequelize.js';
 import { sendError, sendSuccess, handleError } from '../utils/responseHandler.js';
 import { registrarAuditoria, buildCambios, resumenFromCambios } from '../services/auditoriaAdminService.js';
 import { GESTION_MODULOS } from '../constants/gestionPermisos.js';
+import {
+  ACCESO_ASISTENCIA,
+  normalizeAccesoAsistencia,
+} from '../utils/entrenadorAcceso.js';
 
 const clip = (v, max) => {
   if (v == null) return null;
@@ -69,6 +73,7 @@ function mapEntrenadorRow(row) {
     id: row.id,
     nombre: row.nombre,
     correo: row.correo,
+    accesoAsistencia: normalizeAccesoAsistencia(row.accesoAsistencia ?? row.acceso_asistencia),
     countAsignaciones: Number(row.countAsignaciones || 0),
     countCursos: Number(row.countCursos || 0),
   };
@@ -76,13 +81,22 @@ function mapEntrenadorRow(row) {
 
 async function fetchEntrenadorById(id) {
   const [row] = await sequelize.query(
-    `SELECT e.ID AS id, e.Nombre_Docente AS nombre, e.Correo AS correo
+    `SELECT e.ID AS id,
+            e.Nombre_Docente AS nombre,
+            e.Correo AS correo,
+            e.\`Cédula\` AS cedula,
+            e.acceso_asistencia AS accesoAsistencia
      FROM entrenadores e
      WHERE e.ID = :id
      LIMIT 1`,
     { replacements: { id }, type: QueryTypes.SELECT },
   );
-  return row || null;
+  if (!row) return null;
+  return {
+    ...row,
+    cedula: row.cedula != null ? Number(row.cedula) : null,
+    accesoAsistencia: normalizeAccesoAsistencia(row.accesoAsistencia),
+  };
 }
 
 async function fetchAsignacionesByCorreo(correo) {
@@ -170,6 +184,7 @@ export const listarEntrenadoresGestion = async (req, res) => {
         id: 'e.ID',
         nombre: 'e.Nombre_Docente',
         correo: 'e.Correo',
+        acceso: 'e.acceso_asistencia',
         disciplinas: 'countAsignaciones',
         cursos: 'countCursos',
       },
@@ -179,6 +194,7 @@ export const listarEntrenadoresGestion = async (req, res) => {
       `SELECT e.ID AS id,
               e.Nombre_Docente AS nombre,
               e.Correo AS correo,
+              e.acceso_asistencia AS accesoAsistencia,
               (
                 SELECT COUNT(*)
                 FROM asignacion_entrenadores a
@@ -237,6 +253,8 @@ export const obtenerEntrenadorGestion = async (req, res) => {
           id: row.id,
           nombre: row.nombre,
           correo: row.correo,
+          cedula: row.cedula,
+          accesoAsistencia: row.accesoAsistencia,
         },
         asignaciones: asignaciones.map(mapAsignacion),
         cursos,
@@ -248,32 +266,53 @@ export const obtenerEntrenadorGestion = async (req, res) => {
   }
 };
 
+function parseCedula(raw) {
+  const digits = String(raw ?? '')
+    .trim()
+    .replace(/\D/g, '');
+  if (!digits) return null;
+  const n = Number(digits);
+  if (!Number.isInteger(n) || n <= 0 || n > 2147483647) return null;
+  return n;
+}
+
 export const crearEntrenadorGestion = async (req, res) => {
   try {
     const body = req.body || {};
-    const id = String(body.id || '').trim();
+    const id = String(body.id || body.cedula || body.documento || '').trim();
     const nombre = emptyToNull(body.nombre ?? body.nombreDocente);
     const correo = emptyToNull(body.correo);
-    if (!id) return sendError(res, 400, 'ID requerido');
+    const accesoAsistencia = normalizeAccesoAsistencia(
+      body.accesoAsistencia ?? body.acceso_asistencia ?? ACCESO_ASISTENCIA.ASISTENCIA_HISTORIAL,
+    );
+    const cedula = parseCedula(body.cedula ?? body.documento ?? body.id);
+    if (!id) return sendError(res, 400, 'Documento (ID) requerido');
+    if (!cedula) {
+      return sendError(res, 400, 'Documento debe ser un número de cédula válido');
+    }
     if (!nombre) return sendError(res, 400, 'Nombre requerido');
     if (!correo) return sendError(res, 400, 'Correo requerido');
 
     const [yaExiste] = await sequelize.query(
-      `SELECT ID AS id FROM entrenadores WHERE ID = :id LIMIT 1`,
-      { replacements: { id }, type: QueryTypes.SELECT },
+      `SELECT ID AS id FROM entrenadores
+       WHERE ID = :id OR \`Cédula\` = :cedula
+       LIMIT 1`,
+      { replacements: { id, cedula }, type: QueryTypes.SELECT },
     );
     if (yaExiste) {
-      return sendError(res, 409, `Ya existe un entrenador con ID ${id}`);
+      return sendError(res, 409, `Ya existe un entrenador con documento ${id}`);
     }
 
     await sequelize.query(
-      `INSERT INTO entrenadores (ID, Nombre_Docente, Correo)
-       VALUES (:id, :nombre, :correo)`,
+      `INSERT INTO entrenadores (ID, Nombre_Docente, Correo, acceso_asistencia, \`Cédula\`)
+       VALUES (:id, :nombre, :correo, :acceso, :cedula)`,
       {
         replacements: {
-          id: clip(id, 40),
-          nombre: clip(nombre, 120),
-          correo: clip(correo, 120),
+          id: clip(id, 50),
+          nombre: clip(nombre, 100),
+          correo: clip(correo, 42),
+          acceso: accesoAsistencia,
+          cedula,
         },
         type: QueryTypes.INSERT,
       },
@@ -291,13 +330,13 @@ export const crearEntrenadorGestion = async (req, res) => {
       entidad: 'entrenador',
       entidadId: id,
       resumen: `Entrenador ${id} creado`,
-      despues: { id, nombre, correo },
+      despues: { id, nombre, correo, cedula, accesoAsistencia },
     });
 
     return sendSuccess(res, 201, { id }, 'Entrenador creado');
   } catch (error) {
     if (isDuplicateKeyError(error)) {
-      return sendError(res, 409, 'Ya existe un entrenador con ese ID o correo', error.message);
+      return sendError(res, 409, 'Ya existe un entrenador con ese documento o correo', error.message);
     }
     return handleError(res, error, 'Error al crear entrenador');
   }
@@ -317,19 +356,38 @@ export const actualizarEntrenadorGestion = async (req, res) => {
         ? emptyToNull(body.nombre ?? body.nombreDocente)
         : before.nombre;
     const correo = body.correo !== undefined ? emptyToNull(body.correo) : before.correo;
+    const accesoAsistencia =
+      body.accesoAsistencia !== undefined || body.acceso_asistencia !== undefined
+        ? normalizeAccesoAsistencia(body.accesoAsistencia ?? body.acceso_asistencia)
+        : normalizeAccesoAsistencia(before.accesoAsistencia);
 
     if (!nombre) return sendError(res, 400, 'Nombre requerido');
     if (!correo) return sendError(res, 400, 'Correo requerido');
 
+    const cedula =
+      body.cedula !== undefined || body.documento !== undefined
+        ? parseCedula(body.cedula ?? body.documento)
+        : before.cedula != null
+          ? Number(before.cedula)
+          : parseCedula(id);
+    if (cedula == null) {
+      return sendError(res, 400, 'Documento debe ser un número de cédula válido');
+    }
+
     await sequelize.query(
       `UPDATE entrenadores
-       SET Nombre_Docente = :nombre, Correo = :correo
+       SET Nombre_Docente = :nombre,
+           Correo = :correo,
+           acceso_asistencia = :acceso,
+           \`Cédula\` = :cedula
        WHERE ID = :id`,
       {
         replacements: {
           id,
-          nombre: clip(nombre, 120),
-          correo: clip(correo, 120),
+          nombre: clip(nombre, 100),
+          correo: clip(correo, 42),
+          acceso: accesoAsistencia,
+          cedula,
         },
         type: QueryTypes.UPDATE,
       },
@@ -350,8 +408,12 @@ export const actualizarEntrenadorGestion = async (req, res) => {
     }
 
     const cambios = buildCambios(
-      { nombre: before.nombre, correo: before.correo },
-      { nombre, correo },
+      {
+        nombre: before.nombre,
+        correo: before.correo,
+        accesoAsistencia: before.accesoAsistencia,
+      },
+      { nombre, correo, accesoAsistencia },
     );
 
     await registrarAuditoria({
@@ -362,7 +424,7 @@ export const actualizarEntrenadorGestion = async (req, res) => {
       entidadId: id,
       resumen: resumenFromCambios(`Entrenador ${id}`, cambios) || `Entrenador ${id} actualizado`,
       antes: before,
-      despues: { id, nombre, correo },
+      despues: { id, nombre, correo, accesoAsistencia },
       cambios,
     });
 

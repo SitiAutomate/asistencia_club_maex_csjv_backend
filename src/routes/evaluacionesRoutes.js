@@ -8,13 +8,14 @@ import {
   obtenerEvaluacionParticipante,
 } from '../controllers/EvaluacionesController.js';
 import { uploadEvaluacionFoto } from '../middlewares/uploadEvaluacion.js';
-import { requireAuth, requireRoles } from '../middlewares/auth.js';
+import { denyHistorialOnlyEntrenador, requireAuth, requireRoles } from '../middlewares/auth.js';
 import { ROLES } from '../constants/roles.js';
 
 const router = Router();
 
 router.use(requireAuth);
 router.use(requireRoles(ROLES.ADMINISTRADOR, ROLES.SUPER_ADMINISTRADOR, ROLES.ENTRENADOR, ROLES.PROVEEDOR));
+router.use(denyHistorialOnlyEntrenador);
 
 router.post(
   '/',
