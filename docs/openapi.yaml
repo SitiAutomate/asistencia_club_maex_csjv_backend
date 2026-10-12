@@ -912,7 +912,8 @@ paths:
       description: >
         Misma autenticación BEARERINS. Filtra por año actual (America/Bogota),
         sin filtro de mes. Solo incluye filas con FECHA INGRESO NUEVO TRANSPORTE
-        o FECHA RETIRO TRANSPORTE no vacías.
+        o FECHA RETIRO TRANSPORTE no vacías. Por defecto todos los tipos;
+        opcionalmente filtrar con tipo=1 o tipo=1,5.
       security:
         - integracionBearer: []
       parameters:
@@ -922,9 +923,17 @@ paths:
           schema:
             type: string
           description: RETIRO, MEDELLÍN o código 1/2
+        - name: tipo
+          in: query
+          required: false
+          schema:
+            type: string
+          description: >
+            IDs de tipo separados por coma (ej. 1 o 1,5). Sin este param, todos los tipos.
+            Alias: tipos.
       responses:
         '200':
-          description: Lista de inscripciones con datos de transporte
+          description: Lista de inscripciones con datos de transporte (incluye tipo y nombreTipo)
         '401':
           description: Token BEARERINS inválido
 
@@ -932,6 +941,9 @@ paths:
     get:
       tags: [Integración club]
       summary: Extraclases del mes actual por sede
+      description: >
+        Por defecto todos los tipos. Filtrar con tipo=1 o tipo=1,5.
+        Cada fila incluye tipo y nombreTipo.
       security:
         - integracionBearer: []
       parameters:
@@ -941,8 +953,16 @@ paths:
           schema:
             type: string
           description: RETIRO, MEDELLÍN o código 1/2
+        - name: tipo
+          in: query
+          required: false
+          schema:
+            type: string
+          description: >
+            IDs de tipo separados por coma (ej. 1 o 1,5). Sin este param, todos los tipos.
+            Alias: tipos.
       responses:
         '200':
-          description: Lista de extraclases
+          description: Lista de extraclases (incluye tipo y nombreTipo)
         '401':
           description: Token BEARERINS inválido

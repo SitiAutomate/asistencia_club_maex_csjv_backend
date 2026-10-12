@@ -29,6 +29,8 @@ const MESES = {
 const SELECT_EXTRACLASES = `
   TRIM(i.validador_participante) AS documento,
   TRIM(i.IDCurso) AS id,
+  i.Tipo AS tipo,
+  TRIM(t.Nombre_Tipo) AS nombreTipo,
   LPAD(TRIM(i.Mes), 2, '0') AS numMes,
   TRIM(i.Sede) AS sede,
   TRIM(i.Estado) AS estado,
@@ -103,9 +105,43 @@ function resolverSede(req, res) {
   return sede;
 }
 
+/**
+ * Query `tipo` / `tipos`: "1", "1,5", ["1","5"].
+ * Sin param o vacío → null (todos los tipos).
+ * Si viene con valores inválidos → { error }.
+ */
+function parseTiposFiltro(query) {
+  const raw = query?.tipo ?? query?.tipos ?? query?.type;
+  if (raw == null) return { tipos: null };
+  const chunks = Array.isArray(raw) ? raw : [raw];
+  const parts = chunks
+    .flatMap((v) => String(v).split(/[,;|]/))
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return { tipos: null };
+
+  const tipos = [];
+  const invalidos = [];
+  for (const p of parts) {
+    const n = Number(p);
+    if (!Number.isInteger(n) || n <= 0) {
+      invalidos.push(p);
+      continue;
+    }
+    if (!tipos.includes(n)) tipos.push(n);
+  }
+  if (invalidos.length) {
+    return {
+      error: `Tipo inválido: ${invalidos.join(', ')}. Use enteros positivos (ej. tipo=1 o tipo=1,5).`,
+    };
+  }
+  return { tipos: tipos.length ? tipos : null };
+}
+
 function mapearFilas(rows) {
   return rows.map((item) => ({
     ...item,
+    tipo: item.tipo != null ? Number(item.tipo) : null,
     mes: MESES[item.numMes] || item.numMes,
   }));
 }
@@ -123,6 +159,7 @@ const JOINS = `
   FROM inscripciones_1 i
   LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(i.IDCurso)
   LEFT JOIN linea l ON l.IDLinea = c.Linea
+  LEFT JOIN tipos t ON t.IDTipo = i.Tipo
   LEFT JOIN participantes p ON TRIM(p.IDParticipante) = TRIM(i.validador_participante)
   LEFT JOIN responsables r ON TRIM(r.IDResponsable) = TRIM(i.validador_responsable)
   LEFT JOIN padres pa ON TRIM(pa.\`Doc. Alumno\`) = TRIM(i.validador_participante)
@@ -133,18 +170,24 @@ export const listarExtraclasesMesActual = async (req, res) => {
     const sede = resolverSede(req, res);
     if (!sede) return;
 
+    const { tipos, error } = parseTiposFiltro(req.query);
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
     const { anio, mes } = mesActualBogota();
+    const tipoSql = tipos?.length ? 'AND i.Tipo IN (:tipos)' : '';
     const rows = await sequelize.query(
       `SELECT ${SELECT_EXTRACLASES}
        ${JOINS}
-       WHERE i.Tipo = 1
-         AND i.año = :anio
+       WHERE i.año = :anio
          AND LPAD(TRIM(i.Mes), 2, '0') = :mes
          AND TRIM(i.Sede) = :sede
          AND TRIM(i.Estado) IN ('ACTIVO','CONFIRMADO', 'INCAPACITADO', 'RETIRADO')
-       ORDER BY c.Nombre_del_curso ASC, p.Nombre_Completo ASC`,
+         ${tipoSql}
+       ORDER BY i.Tipo ASC, c.Nombre_del_curso ASC, p.Nombre_Completo ASC`,
       {
-        replacements: { anio, mes, sede },
+        replacements: { anio, mes, sede, ...(tipos?.length ? { tipos } : {}) },
         type: QueryTypes.SELECT,
       },
     );
@@ -164,21 +207,27 @@ export const listarTransporteAnioActual = async (req, res) => {
     const sede = resolverSede(req, res);
     if (!sede) return;
 
+    const { tipos, error } = parseTiposFiltro(req.query);
+    if (error) {
+      return res.status(400).json({ success: false, message: error });
+    }
+
     const anio = anioActualBogota();
+    const tipoSql = tipos?.length ? 'AND i.Tipo IN (:tipos)' : '';
     const rows = await sequelize.query(
       `SELECT ${SELECT_EXTRACLASES}
        ${JOINS}
-       WHERE i.Tipo = 1
-         AND i.año = :anio
+       WHERE i.año = :anio
          AND TRIM(i.Sede) = :sede
          AND TRIM(i.Estado) IN ('ACTIVO','CONFIRMADO', 'INCAPACITADO', 'RETIRADO')
          AND (
            NULLIF(TRIM(i.\`FECHA INGRESO NUEVO TRANSPORTE\`), '') IS NOT NULL
            OR NULLIF(TRIM(i.\`FECHA RETIRO TRANSPORTE\`), '') IS NOT NULL
          )
-       ORDER BY c.Nombre_del_curso ASC, p.Nombre_Completo ASC`,
+         ${tipoSql}
+       ORDER BY i.Tipo ASC, c.Nombre_del_curso ASC, p.Nombre_Completo ASC`,
       {
-        replacements: { anio, sede },
+        replacements: { anio, sede, ...(tipos?.length ? { tipos } : {}) },
         type: QueryTypes.SELECT,
       },
     );

@@ -61,19 +61,27 @@ Endpoints para sistemas externos del club. Autenticación: `Authorization: Beare
 
 ```http
 GET /api/integracion-club/:sedeNombre
+GET /api/integracion-club/:sedeNombre?tipo=1
+GET /api/integracion-club/:sedeNombre?tipo=1,5
 ```
 
 Devuelve extraclases del mes actual (año/mes en `America/Bogota`).
+
+- **Sin `tipo`:** todos los tipos.
+- **`tipo` / `tipos`:** uno o varios IDs (`1`, `1,5`, o `tipo=1&tipo=5`).
+- Cada fila incluye `tipo` y `nombreTipo` (tabla `tipos`).
 
 ### Transporte (año actual, con fechas diligenciadas)
 
 ```http
 GET /api/integracion-club/transporte/:sedeNombre
+GET /api/integracion-club/transporte/:sedeNombre?tipo=1
 ```
 
 Misma estructura de respuesta, pero:
 - Filtra solo por **año actual** (sin mes).
 - Solo incluye filas con `FECHA INGRESO NUEVO TRANSPORTE` o `FECHA RETIRO TRANSPORTE` diligenciadas.
+- Mismo filtro opcional `tipo` / `tipos`.
 
 **Código:** `IntegracionClubController.js` (consulta SQL directa).
 

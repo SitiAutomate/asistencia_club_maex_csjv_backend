@@ -18,6 +18,11 @@ import { parseDiasDesdeNombre } from '../utils/parseDiasDesdeNombre.js';
 import { logger } from '../config/logger.js';
 import { env } from '../config/env.js';
 import { evaluateInformeEnvioWindow } from '../utils/informeEnvioWindow.js';
+import {
+  cargarEquiposInscripcion,
+  construirFilasExportEquipos,
+  resumenEquiposListRow,
+} from '../services/gestionEquiposService.js';
 
 const ESTADOS_GESTION = ['CONFIRMADO', 'ACTIVO', 'INCAPACITADO', 'RETIRADO'];
 
@@ -333,6 +338,10 @@ const normalizeTransporte = (value) => {
 };
 
 const mapListRow = (row, camposLista = []) => {
+  const equiposMeta = resumenEquiposListRow({
+    modalidad: row.Modalidad,
+    observacion: row.OBSERVACION,
+  });
   const base = {
     id: row.IDInscripcion,
     tipo: row.Tipo,
@@ -341,6 +350,10 @@ const mapListRow = (row, camposLista = []) => {
     estado: row.Estado,
     sede: row.Sede,
     transporte: row.Transporte,
+    modalidad: row.Modalidad || '',
+    organizacion: row.organizacion || '',
+    club: row.club || '',
+    categoria: row.categoria || '',
     fechaInscripcion: row.Fecha_Inscripcion,
     observaciones: row.OBSERVACION,
     observacionFacturacion: row.Observacion_Facturacion,
@@ -364,6 +377,9 @@ const mapListRow = (row, camposLista = []) => {
     nombreActividad: row.nombre_actividad || row.Nombre_Actividad || '',
     lineaId: row.Linea ?? row.linea_id ?? null,
     nombreLinea: row.nombre_linea || row.Nombre_Linea || '',
+    esEquipos: equiposMeta.esEquipos,
+    totalEquipos: equiposMeta.totalEquipos,
+    eventoEquipos: equiposMeta.eventoEquipos,
   };
   if (!camposLista.length) {
     base.camposExtra = [];
@@ -661,6 +677,10 @@ export const listarInscripcionesGestion = async (req, res) => {
          i.\`FECHA RETIRO EXTRACLASE\` AS FechaRetiro,
          i.\`FECHA RETIRO TRANSPORTE\` AS FechaRetiroTransporte,
          i.IDCurso,
+         i.Modalidad,
+         i.organizacion,
+         i.club,
+         i.categoria,
          i.validador_participante,
          i.validador_responsable,
          i.nombreCurso,
@@ -720,11 +740,14 @@ export const listarInscripcionesGestion = async (req, res) => {
       }
     }
 
+    const equiposExport = exportAll ? await construirFilasExportEquipos(mapped) : [];
+
     return sendSuccess(
       res,
       200,
       {
         inscritos: mapped,
+        ...(exportAll ? { equiposExport } : {}),
         camposLista: camposLista.map((c) => ({
           campoKey: c.campo_key,
           label: c.label,
@@ -772,6 +795,10 @@ export const obtenerInscripcionGestion = async (req, res) => {
          i.\`FECHA RETIRO EXTRACLASE\` AS FechaRetiro,
          i.\`FECHA RETIRO TRANSPORTE\` AS FechaRetiroTransporte,
          i.IDCurso,
+         i.Modalidad,
+         i.organizacion,
+         i.club,
+         i.categoria,
          i.validador_participante,
          i.validador_responsable,
          i.nombreCurso,
@@ -819,6 +846,21 @@ export const obtenerInscripcionGestion = async (req, res) => {
       detail.camposExtra = await leerValoresCamposTipo(detail.tipo, detail.id);
     } else {
       detail.camposExtra = [];
+    }
+
+    const equiposPayload = await cargarEquiposInscripcion({
+      idInscripcion: detail.id,
+      observacion: detail.observaciones,
+      modalidad: detail.modalidad,
+    });
+    detail.esEquipos = equiposPayload.esEquipos;
+    detail.equipos = equiposPayload.equipos;
+    detail.equiposResumen = equiposPayload.resumen;
+    detail.equiposFuente = equiposPayload.fuente;
+    if (equiposPayload.esEquipos) {
+      detail.totalEquipos =
+        equiposPayload.equipos?.length || equiposPayload.resumen?.totalEquipos || 0;
+      detail.eventoEquipos = equiposPayload.resumen?.evento || null;
     }
 
     return sendSuccess(res, 200, { inscripcion: detail }, 'Inscripción obtenida');
