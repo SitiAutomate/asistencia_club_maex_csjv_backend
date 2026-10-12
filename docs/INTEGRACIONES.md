@@ -70,6 +70,9 @@ Devuelve extraclases del mes actual (año/mes en `America/Bogota`).
 - **Sin `tipo`:** todos los tipos.
 - **`tipo` / `tipos`:** uno o varios IDs (`1`, `1,5`, o `tipo=1&tipo=5`).
 - Cada fila incluye `tipo` y `nombreTipo` (tabla `tipos`).
+- **Periodo / estado:**
+  - Tipo `1`: mes + año actual; estados `ACTIVO`, `CONFIRMADO`, `INCAPACITADO`, `RETIRADO`.
+  - Otros tipos: solo año actual; estado `ACTIVO` (no usan mes).
 
 ### Transporte (año actual, con fechas diligenciadas)
 

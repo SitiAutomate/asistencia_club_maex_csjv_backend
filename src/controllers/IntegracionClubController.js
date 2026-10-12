@@ -138,6 +138,54 @@ function parseTiposFiltro(query) {
   return { tipos: tipos.length ? tipos : null };
 }
 
+/** Expande IN (:tipos) a :tipo0, :tipo1… (más fiable en Sequelize/mysql2). */
+function buildTipoInClause(tipos, repl) {
+  if (!tipos?.length) return '';
+  const keys = tipos.map((_, i) => {
+    const k = `tipo${i}`;
+    repl[k] = tipos[i];
+    return `:${k}`;
+  });
+  return `AND i.Tipo IN (${keys.join(', ')})`;
+}
+
+/**
+ * Tipo 1 (extraclases): año + mes actual.
+ * Otros tipos: solo año (no usan Mes).
+ */
+function buildPeriodoSql({ soloTipo1 }) {
+  if (soloTipo1) {
+    return `i.año = :anio AND LPAD(TRIM(IFNULL(i.Mes, '')), 2, '0') = :mes`;
+  }
+  return `(
+    (i.Tipo = 1 AND i.año = :anio AND LPAD(TRIM(IFNULL(i.Mes, '')), 2, '0') = :mes)
+    OR (IFNULL(i.Tipo, 0) <> 1 AND i.año = :anio)
+  )`;
+}
+
+/**
+ * Tipo 1: ACTIVO / CONFIRMADO / INCAPACITADO / RETIRADO.
+ * Otros tipos: solo ACTIVO.
+ */
+function buildEstadoSql({ soloTipo1, soloOtrosTipos }) {
+  if (soloTipo1) {
+    return `TRIM(i.Estado) IN ('ACTIVO','CONFIRMADO', 'INCAPACITADO', 'RETIRADO')`;
+  }
+  if (soloOtrosTipos) {
+    return `TRIM(i.Estado) = 'ACTIVO'`;
+  }
+  return `(
+    (i.Tipo = 1 AND TRIM(i.Estado) IN ('ACTIVO','CONFIRMADO', 'INCAPACITADO', 'RETIRADO'))
+    OR (IFNULL(i.Tipo, 0) <> 1 AND TRIM(i.Estado) = 'ACTIVO')
+  )`;
+}
+
+function clasificarFiltroTipos(tipos) {
+  const lista = Array.isArray(tipos) ? tipos : null;
+  const soloTipo1 = Boolean(lista?.length) && lista.every((t) => t === 1);
+  const soloOtrosTipos = Boolean(lista?.length) && lista.every((t) => t !== 1);
+  return { soloTipo1, soloOtrosTipos };
+}
 function mapearFilas(rows) {
   return rows.map((item) => ({
     ...item,
@@ -176,18 +224,22 @@ export const listarExtraclasesMesActual = async (req, res) => {
     }
 
     const { anio, mes } = mesActualBogota();
-    const tipoSql = tipos?.length ? 'AND i.Tipo IN (:tipos)' : '';
+    const repl = { anio, mes, sede };
+    const { soloTipo1, soloOtrosTipos } = clasificarFiltroTipos(tipos);
+    const periodoSql = buildPeriodoSql({ soloTipo1 });
+    const estadoSql = buildEstadoSql({ soloTipo1, soloOtrosTipos });
+    const tipoSql = buildTipoInClause(tipos, repl);
+
     const rows = await sequelize.query(
       `SELECT ${SELECT_EXTRACLASES}
        ${JOINS}
-       WHERE i.año = :anio
-         AND LPAD(TRIM(i.Mes), 2, '0') = :mes
+       WHERE ${periodoSql}
          AND TRIM(i.Sede) = :sede
-         AND TRIM(i.Estado) IN ('ACTIVO','CONFIRMADO', 'INCAPACITADO', 'RETIRADO')
+         AND ${estadoSql}
          ${tipoSql}
        ORDER BY i.Tipo ASC, c.Nombre_del_curso ASC, p.Nombre_Completo ASC`,
       {
-        replacements: { anio, mes, sede, ...(tipos?.length ? { tipos } : {}) },
+        replacements: repl,
         type: QueryTypes.SELECT,
       },
     );
@@ -213,13 +265,16 @@ export const listarTransporteAnioActual = async (req, res) => {
     }
 
     const anio = anioActualBogota();
-    const tipoSql = tipos?.length ? 'AND i.Tipo IN (:tipos)' : '';
+    const repl = { anio, sede };
+    const { soloTipo1, soloOtrosTipos } = clasificarFiltroTipos(tipos);
+    const estadoSql = buildEstadoSql({ soloTipo1, soloOtrosTipos });
+    const tipoSql = buildTipoInClause(tipos, repl);
     const rows = await sequelize.query(
       `SELECT ${SELECT_EXTRACLASES}
        ${JOINS}
        WHERE i.año = :anio
          AND TRIM(i.Sede) = :sede
-         AND TRIM(i.Estado) IN ('ACTIVO','CONFIRMADO', 'INCAPACITADO', 'RETIRADO')
+         AND ${estadoSql}
          AND (
            NULLIF(TRIM(i.\`FECHA INGRESO NUEVO TRANSPORTE\`), '') IS NOT NULL
            OR NULLIF(TRIM(i.\`FECHA RETIRO TRANSPORTE\`), '') IS NOT NULL
@@ -227,7 +282,7 @@ export const listarTransporteAnioActual = async (req, res) => {
          ${tipoSql}
        ORDER BY i.Tipo ASC, c.Nombre_del_curso ASC, p.Nombre_Completo ASC`,
       {
-        replacements: { anio, sede, ...(tipos?.length ? { tipos } : {}) },
+        replacements: repl,
         type: QueryTypes.SELECT,
       },
     );
