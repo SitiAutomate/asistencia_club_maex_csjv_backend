@@ -2722,10 +2722,9 @@ export const listarRecomendacionesGestion = async (req, res) => {
   try {
     const actividad = String(req.query.actividad || '').trim();
     const idCurso = String(req.query.idCurso || '').trim();
-    const anioRaw = req.query.anio ?? req.query.año;
     const debug = String(req.query.debug || '') === '1';
-    const { anio: anioDefault } = anioMesBogota();
-    const anio = anioRaw != null && String(anioRaw).trim() !== '' ? Number(anioRaw) : anioDefault;
+    // Alcance fijo: año actual, meses oct/nov, solo CONFIRMADO/ACTIVO.
+    const { anio } = anioMesBogota();
 
     if (!actividad && !idCurso) {
       return sendError(res, 400, 'Indique actividad o curso para filtrar');
@@ -2740,15 +2739,15 @@ export const listarRecomendacionesGestion = async (req, res) => {
       actividadId = cur?.Actividad != null ? Number(cur.Actividad) : null;
     }
 
+    const mesOctNov = [...new Set(['10', '11'].flatMap((m) => mesVariants(m)))];
     const clauses = [
       `i.Tipo = 1`,
-      `TRIM(i.Estado) IN ('CONFIRMADO', 'ACTIVO', 'INCAPACITADO')`,
+      `TRIM(i.Estado) IN ('CONFIRMADO', 'ACTIVO')`,
+      'CAST(i.`año` AS UNSIGNED) = :anio',
     ];
     const repl = { anio };
+    pushInClause(clauses, repl, 'i.Mes', mesOctNov, 'mesRec');
 
-    if (Number.isFinite(anio) && anio > 0) {
-      clauses.push('i.año = :anio');
-    }
     if (idCurso) {
       clauses.push('TRIM(i.IDCurso) = :idCurso');
       repl.idCurso = idCurso;
@@ -2921,7 +2920,7 @@ export const listarRecomendacionesGestion = async (req, res) => {
 
     logger.info(
       `[recomendaciones] listado filas=${filas.length} act=${actividadId || '—'} ` +
-        `idCurso=${idCurso || '—'} anio=${anio}`,
+        `idCurso=${idCurso || '—'} anio=${anio} meses=10,11 estados=CONFIRMADO,ACTIVO`,
     );
 
     return sendSuccess(
@@ -2931,6 +2930,8 @@ export const listarRecomendacionesGestion = async (req, res) => {
         filas,
         meta: {
           anio,
+          meses: ['10', '11'],
+          estados: ['CONFIRMADO', 'ACTIVO'],
           actividadId,
           idCurso: idCurso || null,
           ...(debug ? { debug: debugRows.slice(0, 20) } : {}),
