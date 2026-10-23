@@ -59,7 +59,7 @@
     "minimatch": "10.2.5",
     "glob": "11.1.0",
     "qs": "6.16.0",
-    "ip-address": "10.7.1",
+    "ip-address": "10.7.4",
     "moment": "2.31.0",
     "@humanfs/node": "0.16.8"
   }
