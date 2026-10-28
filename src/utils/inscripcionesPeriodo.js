@@ -61,15 +61,18 @@ export function isPeriodoInscripcionPermitido(anio, mes) {
 }
 
 export function getPeriodoDefault(mesNum) {
-  const mesPeriodo2 = env.informesPeriodo.periodo2Mes;
-  return Number(mesNum) >= mesPeriodo2 ? 'ago_dic' : 'ene_jul';
+  // Desde el mes inicial del 2.º corte (oct) se considera periodo ago_dic.
+  const mesPeriodo2Inicio = env.informesPeriodo.periodo2MesInicio ?? env.informesPeriodo.periodo2Mes;
+  return Number(mesNum) >= mesPeriodo2Inicio ? 'ago_dic' : 'ene_jul';
 }
 
 export function getPeriodoMonths(periodo, mesActual) {
-  const mesPeriodo1 = env.informesPeriodo.periodo1Mes;
-  const mesPeriodo2 = env.informesPeriodo.periodo2Mes;
-  if (periodo === 'ene_jul') return { mesInicio: mesPeriodo1, mesFin: mesPeriodo1 };
-  if (periodo === 'ago_dic') return { mesInicio: mesPeriodo2, mesFin: mesPeriodo2 };
+  const p1Inicio = env.informesPeriodo.periodo1MesInicio;
+  const p1Fin = env.informesPeriodo.periodo1MesFin;
+  const p2Inicio = env.informesPeriodo.periodo2MesInicio;
+  const p2Fin = env.informesPeriodo.periodo2MesFin;
+  if (periodo === 'ene_jul') return { mesInicio: p1Inicio, mesFin: p1Fin };
+  if (periodo === 'ago_dic') return { mesInicio: p2Inicio, mesFin: p2Fin };
   const def = getPeriodoDefault(mesActual);
   return getPeriodoMonths(def, mesActual);
 }
@@ -83,27 +86,34 @@ export function resolvePeriodoFiltro({ periodo, anio } = {}) {
   return { periodo: periodoNorm, anio: anioRef, mesInicio, mesFin };
 }
 
+function etiquetaRangoMeses(inicio, fin) {
+  if (inicio === fin) return nombreMesInformes(inicio);
+  return `${nombreMesInformes(inicio)} - ${nombreMesInformes(fin)}`;
+}
+
 export function getPeriodosInformesConfig() {
   const { mesNum } = anioMesBogota();
-  const mesPeriodo1 = env.informesPeriodo.periodo1Mes;
-  const mesPeriodo2 = env.informesPeriodo.periodo2Mes;
-  const etiqueta1 = env.informesPeriodo.periodo1Etiqueta || nombreMesInformes(mesPeriodo1);
-  const etiqueta2 = env.informesPeriodo.periodo2Etiqueta || nombreMesInformes(mesPeriodo2);
+  const p1Inicio = env.informesPeriodo.periodo1MesInicio;
+  const p1Fin = env.informesPeriodo.periodo1MesFin;
+  const p2Inicio = env.informesPeriodo.periodo2MesInicio;
+  const p2Fin = env.informesPeriodo.periodo2MesFin;
+  const etiqueta1 = env.informesPeriodo.periodo1Etiqueta || etiquetaRangoMeses(p1Inicio, p1Fin);
+  const etiqueta2 = env.informesPeriodo.periodo2Etiqueta || etiquetaRangoMeses(p2Inicio, p2Fin);
 
   return {
     periodos: [
       {
         id: 'ene_jul',
-        mes: mesPeriodo1,
-        mesInicio: mesPeriodo1,
-        mesFin: mesPeriodo1,
+        mes: p1Fin,
+        mesInicio: p1Inicio,
+        mesFin: p1Fin,
         etiqueta: etiqueta1,
       },
       {
         id: 'ago_dic',
-        mes: mesPeriodo2,
-        mesInicio: mesPeriodo2,
-        mesFin: mesPeriodo2,
+        mes: p2Fin,
+        mesInicio: p2Inicio,
+        mesFin: p2Fin,
         etiqueta: etiqueta2,
       },
     ],
@@ -112,8 +122,9 @@ export function getPeriodosInformesConfig() {
 }
 
 /**
- * Un registro por participante+curso: el mes del periodo en que tuvo
- * estado CONFIRMADO, ACTIVO o INCAPACITADO (aunque en meses posteriores esté RETIRADO).
+ * Un registro por participante+curso: el mes más reciente del rango del periodo
+ * en que tuvo estado CONFIRMADO, ACTIVO o INCAPACITADO (p. ej. activo en oct
+ * y retirado en nov → cuenta con la fila de octubre).
  */
 export function inscripcionesValidasPeriodoSubquery() {
   return `(

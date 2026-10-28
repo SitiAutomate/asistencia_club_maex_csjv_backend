@@ -21,6 +21,35 @@ const parseMesInformes = (value, fallback) => {
   return n;
 };
 
+/** Rango de meses del periodo (p. ej. mayo–junio = 5–6). */
+const parseRangoMesInformes = ({
+  inicioEnv,
+  finEnv,
+  legacyMesEnv,
+  defaultInicio,
+  defaultFin,
+}) => {
+  const hasInicio = String(inicioEnv ?? '').trim() !== '';
+  const hasFin = String(finEnv ?? '').trim() !== '';
+  const hasLegacy = String(legacyMesEnv ?? '').trim() !== '';
+
+  let inicio;
+  let fin;
+  if (hasInicio || hasFin) {
+    inicio = parseMesInformes(inicioEnv, defaultInicio);
+    fin = parseMesInformes(finEnv, defaultFin);
+  } else if (hasLegacy) {
+    // Compat: INFORMES_PERIODO_X_MES = mes final; inicio = mes anterior.
+    fin = parseMesInformes(legacyMesEnv, defaultFin);
+    inicio = Math.max(1, fin - 1);
+  } else {
+    inicio = defaultInicio;
+    fin = defaultFin;
+  }
+  if (inicio > fin) [inicio, fin] = [fin, inicio];
+  return { inicio, fin };
+};
+
 const informeEnvioHabilitadoRaw = process.env.INFORME_ENVIO_HABILITADO;
 const informeEnvioHabilitadoClean =
   informeEnvioHabilitadoRaw == null
@@ -41,13 +70,38 @@ export const env = {
     logoMaexPath: process.env.EVALUACION_LOGO_MAEX_PATH || '',
     fotoMaxBytes: Math.max(1, Number(process.env.EVALUACION_FOTO_MAX_MB) || 20) * 1024 * 1024,
   },
-  /** Mes de inscripción/evaluación por periodo de informes (ids ene_jul / ago_dic). */
-  informesPeriodo: {
-    periodo1Mes: parseMesInformes(process.env.INFORMES_PERIODO_1_MES, 6),
-    periodo2Mes: parseMesInformes(process.env.INFORMES_PERIODO_2_MES, 11),
-    periodo1Etiqueta: String(process.env.INFORMES_PERIODO_1_ETIQUETA || '').trim(),
-    periodo2Etiqueta: String(process.env.INFORMES_PERIODO_2_ETIQUETA || '').trim(),
-  },
+  /**
+   * Meses de inscripción válidos por periodo de informes (ids ene_jul / ago_dic).
+   * Default: mayo–junio (5–6) y octubre–noviembre (10–11).
+   */
+  informesPeriodo: (() => {
+    const p1 = parseRangoMesInformes({
+      inicioEnv: process.env.INFORMES_PERIODO_1_MES_INICIO,
+      finEnv: process.env.INFORMES_PERIODO_1_MES_FIN,
+      legacyMesEnv: process.env.INFORMES_PERIODO_1_MES,
+      defaultInicio: 5,
+      defaultFin: 6,
+    });
+    const p2 = parseRangoMesInformes({
+      inicioEnv: process.env.INFORMES_PERIODO_2_MES_INICIO,
+      finEnv: process.env.INFORMES_PERIODO_2_MES_FIN,
+      legacyMesEnv: process.env.INFORMES_PERIODO_2_MES,
+      defaultInicio: 10,
+      defaultFin: 11,
+    });
+    return {
+      periodo1MesInicio: p1.inicio,
+      periodo1MesFin: p1.fin,
+      periodo2MesInicio: p2.inicio,
+      periodo2MesFin: p2.fin,
+      /** @deprecated usar periodo1MesFin — compat con lecturas antiguas */
+      periodo1Mes: p1.fin,
+      /** @deprecated usar periodo2MesInicio — umbral de periodo actual */
+      periodo2Mes: p2.inicio,
+      periodo1Etiqueta: String(process.env.INFORMES_PERIODO_1_ETIQUETA || '').trim(),
+      periodo2Etiqueta: String(process.env.INFORMES_PERIODO_2_ETIQUETA || '').trim(),
+    };
+  })(),
   /** Ventana para enviar informes por correo (fecha según America/Bogota). */
   informeEnvio: {
     habilitado: informeEnvioHabilitado,
