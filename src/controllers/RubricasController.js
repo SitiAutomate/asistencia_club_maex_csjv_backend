@@ -35,16 +35,19 @@ async function validarPayloadRubrica(req, body) {
             return { error: 'La actividad es obligatoria para una rúbrica común' };
         }
 
+        // La columna categoria es NOT NULL: en rúbricas comunes sin curso
+        // usamos '' (no null) para no romper el INSERT.
         const categoria = String(body.categoria ?? '').trim();
+        const nombreCategoria = categoria
+            ? String(body.nombreCategoria ?? '').trim() || categoria
+            : String(body.nombreCategoria ?? '').trim() || 'Todas las categorías';
         return {
             payload: {
                 ...body,
                 comun: true,
                 actividad,
-                categoria: categoria || null,
-                nombreCategoria: categoria
-                    ? body.nombreCategoria
-                    : body.nombreCategoria || 'Todas las categorías',
+                categoria,
+                nombreCategoria,
             },
         };
     }
