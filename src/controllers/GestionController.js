@@ -24,7 +24,13 @@ import {
   resumenEquiposListRow,
 } from '../services/gestionEquiposService.js';
 
-const ESTADOS_GESTION = ['CONFIRMADO', 'ACTIVO', 'INCAPACITADO', 'RETIRADO'];
+const ESTADOS_GESTION = [
+  'CONFIRMADO',
+  'ACTIVO',
+  'INCAPACITADO',
+  'RETIRADO',
+  'CURSOS NO APERTURADOS',
+];
 
 function assertTrocarCursosPermitido() {
   const ventana = evaluateInformeEnvioWindow(env.trocarCursos);

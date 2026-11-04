@@ -164,18 +164,20 @@ function buildPeriodoSql({ soloTipo1 }) {
 }
 
 /**
- * Tipo 1: ACTIVO / CONFIRMADO / INCAPACITADO / RETIRADO.
+ * Tipo 1: ACTIVO / CONFIRMADO / INCAPACITADO / RETIRADO / CURSOS NO APERTURADOS.
  * Otros tipos: solo ACTIVO.
  */
 function buildEstadoSql({ soloTipo1, soloOtrosTipos }) {
+  const estadosTipo1 =
+    "('ACTIVO','CONFIRMADO','INCAPACITADO','RETIRADO','CURSOS NO APERTURADOS')";
   if (soloTipo1) {
-    return `TRIM(i.Estado) IN ('ACTIVO','CONFIRMADO', 'INCAPACITADO', 'RETIRADO')`;
+    return `TRIM(i.Estado) IN ${estadosTipo1}`;
   }
   if (soloOtrosTipos) {
     return `TRIM(i.Estado) = 'ACTIVO'`;
   }
   return `(
-    (i.Tipo = 1 AND TRIM(i.Estado) IN ('ACTIVO','CONFIRMADO', 'INCAPACITADO', 'RETIRADO'))
+    (i.Tipo = 1 AND TRIM(i.Estado) IN ${estadosTipo1})
     OR (IFNULL(i.Tipo, 0) <> 1 AND TRIM(i.Estado) = 'ACTIVO')
   )`;
 }
