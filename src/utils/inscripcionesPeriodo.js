@@ -108,6 +108,8 @@ export function getPeriodosInformesConfig() {
         mesInicio: p1Inicio,
         mesFin: p1Fin,
         etiqueta: etiqueta1,
+        /** Dashboard admin / mes de corte (junio). */
+        etiquetaMesCorte: nombreMesInformes(p1Fin),
       },
       {
         id: 'ago_dic',
@@ -115,6 +117,8 @@ export function getPeriodosInformesConfig() {
         mesInicio: p2Inicio,
         mesFin: p2Fin,
         etiqueta: etiqueta2,
+        /** Dashboard admin / mes de corte (noviembre). */
+        etiquetaMesCorte: nombreMesInformes(p2Fin),
       },
     ],
     periodoActual: getPeriodoDefault(mesNum),
