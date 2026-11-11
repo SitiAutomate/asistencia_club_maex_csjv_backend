@@ -216,6 +216,13 @@ export const crearEvaluacion = async (req, res) => {
       const lineaCurso = await resolveLineaDesdeCurso({ categoria: categoriaKey, transaction });
 
       if (!responsableNombre && responsableEmail) {
+        responsableNombre =
+          (await resolveEntrenadorNombreDesdeEmail({
+            email: responsableEmail,
+            transaction,
+          })) || '';
+      }
+      if (!responsableNombre && responsableEmail) {
         const user = await Usuarios.findOne({
           where: { email: String(responsableEmail).trim() },
           transaction,
@@ -377,6 +384,15 @@ export const obtenerEvaluacionParticipante = async (req, res) => {
 
 const resolveDestinatariosFamiliaInforme = resolveCorreosFamiliaInforme;
 
+const nombreDocenteUpper = (entrenador) => {
+  const nombre = String(entrenador?.Nombre_Docente || '').trim();
+  return nombre ? nombre.toUpperCase() : null;
+};
+
+/**
+ * `cursos_2025.Docente` puede ser ID de entrenadores (asignación por gestión)
+ * o correo (datos legacy). No devolver el ID crudo al PDF.
+ */
 const resolveEntrenadorNombreDesdeCurso = async ({ categoria, transaction }) => {
   const categoriaKey = String(categoria || '').trim();
   if (!categoriaKey) return null;
@@ -386,16 +402,28 @@ const resolveEntrenadorNombreDesdeCurso = async ({ categoria, transaction }) => 
     attributes: ['Docente'],
     transaction,
   });
-  const correoEntrenador = String(curso?.Docente || '').trim();
-  if (!correoEntrenador) return null;
+  const docenteRef = String(curso?.Docente || '').trim();
+  if (!docenteRef) return null;
 
   const entrenador = await Entrenadores.findOne({
-    where: { Correo: correoEntrenador },
-    attributes: ['Nombre_Docente', 'Correo'],
+    where: {
+      [Op.or]: [{ ID: docenteRef }, { Correo: docenteRef }],
+    },
+    attributes: ['Nombre_Docente', 'ID', 'Correo'],
     transaction,
   });
-  const nombre = String(entrenador?.Nombre_Docente || '').trim();
-  return nombre ? nombre.toUpperCase() : correoEntrenador.toUpperCase();
+  return nombreDocenteUpper(entrenador);
+};
+
+const resolveEntrenadorNombreDesdeEmail = async ({ email, transaction }) => {
+  const correo = String(email || '').trim();
+  if (!correo) return null;
+  const entrenador = await Entrenadores.findOne({
+    where: { Correo: correo },
+    attributes: ['Nombre_Docente'],
+    transaction,
+  });
+  return nombreDocenteUpper(entrenador);
 };
 
 const resolveLineaDesdeCurso = async ({ categoria, transaction }) => {
