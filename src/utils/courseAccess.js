@@ -1,12 +1,27 @@
 import { Op } from 'sequelize';
 import Cursos from '../database/models/CursosModel.js';
 import Asignaciones from '../database/models/AsignacionModel.js';
+import Entrenadores from '../database/models/EntrenadoresModel.js';
 import Inscripciones from '../database/models/InscripcionesModel.js';
 import Evaluaciones from '../database/models/EvaluacionesModel.js';
 import { isAdminLikeRole } from '../constants/roles.js';
 
 export function isAdminUser(user) {
   return isAdminLikeRole(user?.rol);
+}
+
+/** Docente en cursos puede ser correo (AppSheet) o ID (asignaciones erróneas del gestor). */
+async function docenteRefsForCorreo(correo) {
+  const email = String(correo || '').trim();
+  if (!email) return [];
+  const refs = [email];
+  const entrenador = await Entrenadores.findOne({
+    where: { Correo: email },
+    attributes: ['ID', 'Correo'],
+  });
+  const id = String(entrenador?.ID || '').trim();
+  if (id && id !== email) refs.push(id);
+  return refs;
 }
 
 export async function buildWhereCursosDocente(correo, soloMisCursos, scopeAll) {
@@ -20,6 +35,12 @@ export async function buildWhereCursosDocente(correo, soloMisCursos, scopeAll) {
   }
 
   if (soloMisCursos) {
+    const docenteRefs = await docenteRefsForCorreo(correo);
+    const docenteClause =
+      docenteRefs.length > 1
+        ? { Docente: { [Op.in]: docenteRefs } }
+        : { Docente: { [Op.eq]: correo } };
+
     const asignacionesLider = await Asignaciones.findAll({
       where: {
         docente: correo,
@@ -39,15 +60,12 @@ export async function buildWhereCursosDocente(correo, soloMisCursos, scopeAll) {
       ];
 
       if (actividades.length > 0) {
-        whereCursos[Op.or] = [
-          { Docente: { [Op.eq]: correo } },
-          { Actividad: { [Op.in]: actividades } },
-        ];
+        whereCursos[Op.or] = [docenteClause, { Actividad: { [Op.in]: actividades } }];
       } else {
-        whereCursos.Docente = { [Op.eq]: correo };
+        Object.assign(whereCursos, docenteClause);
       }
     } else {
-      whereCursos.Docente = { [Op.eq]: correo };
+      Object.assign(whereCursos, docenteClause);
     }
 
     return { whereCursos, tieneApoyoGlobal: false };

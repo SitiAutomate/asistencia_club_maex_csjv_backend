@@ -285,6 +285,35 @@ const emptyToNull = (value) => {
   return s === '' ? null : s;
 };
 
+/**
+ * AppSheet guarda en cursos_2025.Docente el correo del entrenador.
+ * El selector de gestión puede enviar ID o correo; normalizamos a Correo.
+ */
+async function resolveDocenteCorreoForCurso(docenteRaw) {
+  const ref = emptyToNull(docenteRaw);
+  if (ref == null) return null;
+  const key = String(ref).trim();
+  if (!key) return null;
+
+  const [row] = await sequelize.query(
+    `SELECT TRIM(Correo) AS correo
+     FROM entrenadores
+     WHERE TRIM(ID) = :key OR LOWER(TRIM(Correo)) = LOWER(:key)
+     LIMIT 1`,
+    { replacements: { key }, type: QueryTypes.SELECT },
+  );
+  if (row?.correo) return String(row.correo).trim();
+
+  // Compat: permitir correo aunque no exista en entrenadores (legado AppSheet).
+  if (key.includes('@')) return key;
+
+  const err = new Error(
+    `No se encontró entrenador para Docente="${key}". Use el correo del docente.`,
+  );
+  err.statusCode = 400;
+  throw err;
+}
+
 /** Nombres de curso siempre en mayúsculas. */
 const toUpperCursoNombre = (value) => {
   if (value === undefined) return undefined;
@@ -966,6 +995,7 @@ export const listarCursosGestion = async (req, res) => {
          l.Nombre_Linea AS nombreLinea,
          a.Nombre_Actividad AS nombreActividad,
          e.Nombre_Docente AS nombreDocente,
+         e.Correo AS docenteCorreo,
          COALESCE(cup.cuposLlenos, 0) AS cuposLlenos
        FROM cursos_2025 c
        LEFT JOIN linea l ON l.IDLinea = c.Linea
@@ -2456,8 +2486,16 @@ export const actualizarCursoGestion = async (req, res) => {
       if (body[bodyKey] !== undefined) {
         sets.push(`${col} = :${replKey}`);
         const raw = emptyToNull(body[bodyKey]);
-        repl[replKey] =
-          bodyKey === 'nombre' || bodyKey === 'nombreCorto' ? toUpperCursoNombre(raw) : raw;
+        if (bodyKey === 'docente') {
+          try {
+            repl[replKey] = await resolveDocenteCorreoForCurso(raw);
+          } catch (e) {
+            return sendError(res, e.statusCode || 400, e.message);
+          }
+        } else {
+          repl[replKey] =
+            bodyKey === 'nombre' || bodyKey === 'nombreCorto' ? toUpperCursoNombre(raw) : raw;
+        }
       }
     }
     if (body.tipo !== undefined) {
@@ -2564,6 +2602,13 @@ export const crearCursoGestion = async (req, res) => {
     const nombre = toUpperCursoNombre(body.nombre);
     if (!id || !nombre) return sendError(res, 400, 'ID y nombre del curso son obligatorios');
 
+    let docenteCorreo;
+    try {
+      docenteCorreo = await resolveDocenteCorreoForCurso(body.docente);
+    } catch (e) {
+      return sendError(res, e.statusCode || 400, e.message);
+    }
+
     await sequelize.query(
       `INSERT INTO cursos_2025
         (ID_Curso, Nombre_del_curso, Nombre_Corto_Curso, Tipo, Estado_del_curso, Sede,
@@ -2587,7 +2632,7 @@ export const crearCursoGestion = async (req, res) => {
           tarifa: emptyToNull(body.tarifa) ?? null,
           codigo: emptyToNull(body.codigoFacturacion) ?? null,
           actividad: body.actividad != null && body.actividad !== '' ? Number(body.actividad) : null,
-          docente: emptyToNull(body.docente) ?? null,
+          docente: docenteCorreo,
           linea: body.linea != null && body.linea !== '' ? Number(body.linea) : null,
           cuposMinimos:
             body.cuposMinimos === '' || body.cuposMinimos == null
