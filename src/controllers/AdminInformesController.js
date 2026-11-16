@@ -95,11 +95,20 @@ function buildAdminInscripcionesFilters(query) {
   }
 
   if (entrenador) {
+    // Filtro: responsable del informe O docente asignado al curso (correo o ID).
     outerClauses.push(
-      `ev.id IS NOT NULL AND EXISTS (
-         SELECT 1 FROM detalle_evaluacion d
-         WHERE d.id_evaluacion = ev.id
-           AND TRIM(d.responsable) = :entrenador
+      `(
+         EXISTS (
+           SELECT 1 FROM detalle_evaluacion dx
+           WHERE dx.id_evaluacion = ev.id
+             AND TRIM(dx.responsable) = :entrenador
+         )
+         OR TRIM(c.Docente) = :entrenador
+         OR EXISTS (
+           SELECT 1 FROM entrenadores ex
+           WHERE (TRIM(ex.ID) = TRIM(c.Docente) OR TRIM(ex.Correo) = TRIM(c.Docente))
+             AND (TRIM(ex.Correo) = :entrenador OR TRIM(ex.ID) = :entrenador)
+         )
        )`,
     );
     repl.entrenador = entrenador;
@@ -148,6 +157,8 @@ function buildAdminInscripcionesFromSql() {
     FROM ${inscripcionesValidasPeriodoSubquery()} iu
     LEFT JOIN participantes p ON TRIM(p.IDParticipante) = TRIM(iu.validador_participante)
     LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(iu.IDCurso)
+    LEFT JOIN entrenadores e_curso
+      ON TRIM(e_curso.ID) = TRIM(c.Docente) OR TRIM(e_curso.Correo) = TRIM(c.Docente)
     LEFT JOIN ${evalRecientePeriodoSubquery()} ev
       ON TRIM(ev.identificacion) = TRIM(iu.validador_participante)
      AND TRIM(ev.categoria) = TRIM(iu.IDCurso)
@@ -159,7 +170,8 @@ function buildAdminInscripcionesFromSql() {
         AND YEAR(e.fecha_creacion) = :anio
         AND MONTH(e.fecha_creacion) BETWEEN :mesEvalInicio AND :mesEvalFin
       GROUP BY d.id_evaluacion
-    ) d ON d.id_evaluacion = ev.id`;
+    ) d ON d.id_evaluacion = ev.id
+    LEFT JOIN entrenadores e_det ON TRIM(e_det.Correo) = TRIM(d.entrenador)`;
 }
 
 function mapAdminInformeRow(r) {
@@ -182,6 +194,14 @@ function mapAdminInformeRow(r) {
   };
 }
 
+/** Nombre del entrenador: informe → docente del curso (nunca dejar vacío si el curso lo tiene). */
+const ENTRENADOR_EXPR = `COALESCE(
+           NULLIF(TRIM(e_det.Nombre_Docente), ''),
+           NULLIF(TRIM(e_curso.Nombre_Docente), ''),
+           NULLIF(TRIM(d.entrenador), ''),
+           NULLIF(TRIM(c.Docente), '')
+         )`;
+
 const SELECT_LIST_COLS = `ev.id,
          COALESCE(NULLIF(TRIM(ev.participante), ''), NULLIF(TRIM(p.Nombre_Completo), '')) AS participante,
          TRIM(iu.validador_participante) AS identificacion,
@@ -197,7 +217,7 @@ const SELECT_LIST_COLS = `ev.id,
          ev.fechaEnvio,
          ev.fecha_creacion,
          ev.fecha_modificacion,
-         d.entrenador`;
+         ${ENTRENADOR_EXPR} AS entrenador`;
 
 const SELECT_EXPORT_COLS = `ev.id,
          COALESCE(NULLIF(TRIM(ev.participante), ''), NULLIF(TRIM(p.Nombre_Completo), '')) AS participante,
@@ -212,7 +232,7 @@ const SELECT_EXPORT_COLS = `ev.id,
          NULLIF(TRIM(ev.informe), '') AS informe,
          ev.enviado,
          ev.fecha_creacion,
-         d.entrenador`;
+         ${ENTRENADOR_EXPR} AS entrenador`;
 
 async function queryAdminInformesRows(query, { limit, offset = 0, forExport = false } = {}) {
   const { repl, inscClauses, outerClauses } = buildAdminInscripcionesFilters(query);
