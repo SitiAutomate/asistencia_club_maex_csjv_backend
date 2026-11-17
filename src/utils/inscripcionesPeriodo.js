@@ -66,6 +66,37 @@ export function getPeriodoDefault(mesNum) {
   return Number(mesNum) >= mesPeriodo2Inicio ? 'ago_dic' : 'ene_jul';
 }
 
+/** Año/mes de una fecha en calendario America/Bogota. */
+export function anioMesDesdeValor(value) {
+  if (value == null || value === '') return null;
+  const raw = String(value).trim();
+  const m = raw.match(/^(\d{4})-(\d{2})/);
+  if (m) return { anio: Number(m[1]), mesNum: Number(m[2]) };
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(d);
+  const anio = Number(parts.find((p) => p.type === 'year')?.value);
+  const mesNum = Number(parts.find((p) => p.type === 'month')?.value);
+  if (!Number.isFinite(anio) || !Number.isFinite(mesNum)) return null;
+  return { anio, mesNum };
+}
+
+/**
+ * true si la evaluación pertenece al periodo de informes vigente (año + ene_jul/ago_dic).
+ * Usado para bloquear edición/envío de periodos ya cerrados.
+ */
+export function evaluacionEnPeriodoInformeActual(fechaCreacion) {
+  const actual = anioMesBogota();
+  const evalAM = anioMesDesdeValor(fechaCreacion);
+  if (!evalAM) return false;
+  if (evalAM.anio !== actual.anio) return false;
+  return getPeriodoDefault(evalAM.mesNum) === getPeriodoDefault(actual.mesNum);
+}
+
 export function getPeriodoMonths(periodo, mesActual) {
   const p1Inicio = env.informesPeriodo.periodo1MesInicio;
   const p1Fin = env.informesPeriodo.periodo1MesFin;

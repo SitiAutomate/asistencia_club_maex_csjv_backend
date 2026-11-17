@@ -9,8 +9,8 @@ import {
 } from '../utils/inscripcionesPeriodo.js';
 
 /**
- * Evaluación más reciente del participante+categoría dentro del mes de corte
- * del periodo (junio o noviembre), no de todo el año.
+ * Evaluación más reciente del participante+categoría en el rango del periodo
+ * (mayo–junio / octubre–noviembre), no de todo el año.
  */
 const evalRecientePeriodoSubquery = () => `(
   SELECT
@@ -55,12 +55,16 @@ function buildAdminInscripcionesFilters(query) {
   const anio = /^\d{4}$/.test(anioFiltro) ? Number(anioFiltro) : anioActualBogota;
   const periodoNormalizado =
     periodo === 'ene_jul' || periodo === 'ago_dic' ? periodo : getPeriodoDefault(mesActualBogota);
-  const { mesFin: mesCorte } = getPeriodoMonths(periodoNormalizado, mesActualBogota);
+  const { mesInicio: mesPeriodoInicio, mesFin: mesCorte } = getPeriodoMonths(
+    periodoNormalizado,
+    mesActualBogota,
+  );
 
-  // Dashboard admin: inscritos y evaluaciones del mes final (junio / noviembre).
+  // Inscritos: mes final (junio / noviembre).
+  // Evaluaciones: rango completo del periodo (may–jun / oct–nov).
   const mesInicio = mesCorte;
   const mesFin = mesCorte;
-  const mesEvalInicio = mesCorte;
+  const mesEvalInicio = mesPeriodoInicio;
   const mesEvalFin = mesCorte;
 
   const repl = { anio, mesInicio, mesFin, mesEvalInicio, mesEvalFin };
@@ -150,6 +154,16 @@ function buildAdminInscripcionesFilters(query) {
     entrenador,
     linea,
   };
+}
+
+/** FROM liviano: cards / conteos (sin resolver nombres de entrenador). */
+function buildAdminInscripcionesFromSqlLight() {
+  return `
+    FROM ${inscripcionesValidasPeriodoSubquery()} iu
+    LEFT JOIN cursos_2025 c ON TRIM(c.ID_Curso) = TRIM(iu.IDCurso)
+    LEFT JOIN ${evalRecientePeriodoSubquery()} ev
+      ON TRIM(ev.identificacion) = TRIM(iu.validador_participante)
+     AND TRIM(ev.categoria) = TRIM(iu.IDCurso)`;
 }
 
 function buildAdminInscripcionesFromSql() {
@@ -295,7 +309,8 @@ export const getResumenInformes = async (req, res) => {
     const { repl, inscClauses, outerClauses, mesCorte, periodo, anio } = buildAdminInscripcionesFilters(
       req.query,
     );
-    const fromSql = buildAdminInscripcionesFromSql();
+    // Cards: query liviana (sin JOINs de nombres de entrenador).
+    const fromSql = buildAdminInscripcionesFromSqlLight();
     const whereSql = `${inscClauses.join(' AND ')} AND ${outerClauses.join(' AND ')}`;
 
     const [rowResumen] = await sequelize.query(
@@ -418,7 +433,7 @@ export const exportarInformesAdmin = async (req, res) => {
 export const getGraficoCategoriasInformes = async (req, res) => {
   try {
     const { repl, inscClauses, outerClauses } = buildAdminInscripcionesFilters(req.query);
-    const fromSql = buildAdminInscripcionesFromSql();
+    const fromSql = buildAdminInscripcionesFromSqlLight();
     const whereSql = `${inscClauses.join(' AND ')} AND ${outerClauses.join(' AND ')}`;
 
     const rows = await sequelize.query(

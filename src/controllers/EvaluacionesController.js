@@ -31,7 +31,15 @@ import {
   assertCursoAccess,
   assertParticipanteAccess,
 } from '../utils/courseAccess.js';
+import { evaluacionEnPeriodoInformeActual } from '../utils/inscripcionesPeriodo.js';
+import { isAdminLikeRole } from '../constants/roles.js';
 import { Op, fn, col, where } from 'sequelize';
+
+const assertEvaluacionPeriodoEditable = (evaluacion, user) => {
+  if (isAdminLikeRole(user?.rol)) return null;
+  if (evaluacionEnPeriodoInformeActual(evaluacion?.fecha_creacion)) return null;
+  return 'No se pueden editar ni reenviar informes de un periodo anterior ya cerrado. Solo el periodo actual está habilitado.';
+};
 
 export const crearEvaluacion = async (req, res) => {
   try {
@@ -136,6 +144,12 @@ export const crearEvaluacion = async (req, res) => {
       let actualizada = false;
 
       if (existing) {
+        const bloqueoPeriodo = assertEvaluacionPeriodoEditable(existing, req.user);
+        if (bloqueoPeriodo) {
+          const err = new Error(bloqueoPeriodo);
+          err.code = 'PERIODO_INFORME_CERRADO';
+          throw err;
+        }
         actualizada = true;
 
         await DetalleEvaluacion.destroy({
@@ -319,6 +333,9 @@ export const crearEvaluacion = async (req, res) => {
     }
     if (error?.code === 'EVALUACION_SIN_PERMISO') {
       return sendError(res, 403, 'No tiene permisos para modificar esta evaluación');
+    }
+    if (error?.code === 'PERIODO_INFORME_CERRADO') {
+      return sendError(res, 403, error.message);
     }
     return sendError(res, 500, 'Error al crear la evaluacion', error.message);
   }
@@ -513,6 +530,10 @@ export const enviarEvaluacion = async (req, res) => {
     const allowed = await assertCursoAccess(req.user, evaluacion.categoria);
     if (!allowed) {
       return sendError(res, 403, 'No tiene permisos para enviar esta evaluacion');
+    }
+    const bloqueoPeriodo = assertEvaluacionPeriodoEditable(evaluacion, req.user);
+    if (bloqueoPeriodo) {
+      return sendError(res, 403, bloqueoPeriodo);
     }
     if (informeYaEnviadoHoyColombia(evaluacion.get({ plain: true }))) {
       return sendError(
